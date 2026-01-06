@@ -2,6 +2,7 @@ import redis
 import subprocess
 import json
 import time
+import reverse_geocoder as rg
 
 class WinterCore:
     def __init__(self):
@@ -27,21 +28,46 @@ class WinterCore:
                 memory[key] = value
         return memory
     
+    def geocode(self, lat, lon):
+        """Offline geocoding"""
+        try:
+            result = rg.search((lat, lon))[0]
+            return f"{result['name']}, {result['admin1']}, {result['cc']}"
+        except:
+            return None
+    
+    def detect_coordinates(self, text):
+        """Detect coordinates in user input"""
+        import re
+        # Match formats like: 32.7417, -117.0536 or (32.7417, -117.0536)
+        pattern = r'(-?\d+\.?\d*),\s*(-?\d+\.?\d*)'
+        match = re.search(pattern, text)
+        if match:
+            lat, lon = float(match.group(1)), float(match.group(2))
+            if -90 <= lat <= 90 and -180 <= lon <= 180:
+                return (lat, lon)
+        return None
+    
     def sculpt_memory(self, project, user_input, assistant_response):
-        prompt = f"""Analyze for project {project}:
+        truncated_response = assistant_response[:500] if len(assistant_response) > 500 else assistant_response
+        
+        prompt = f"""Analyze conversation for project {project}.
 
-User: {user_input}
-Assistant: {assistant_response}
+User: {user_input[:200]}
+AI: {truncated_response}
 
-JSON only:
+Extract key info as JSON only:
 {{"immutable_facts": {{}}, "mutable_state": {{}}, "outcomes": []}}"""
         
-        result = subprocess.run(['ollama', 'run', 'deepseek-r1:8b', prompt],
-                              capture_output=True, text=True, timeout=30)
-        
         try:
-            text = result.stdout.split("...done thinking.")[-1].strip()
-            text = text.replace('```json', '').replace('```', '').strip()
+            result = subprocess.run(['ollama', 'run', 'deepseek-r1:8b', prompt],
+                                  capture_output=True, text=True, timeout=60)
+            
+            text = result.stdout
+            if "...done thinking." in text:
+                text = text.split("...done thinking.")[-1]
+            
+            text = text.strip().replace('```json', '').replace('```', '').strip()
             data = json.loads(text)
             
             for k, v in data.get('immutable_facts', {}).items():
@@ -56,20 +82,41 @@ JSON only:
             pass
     
     def chat(self, project, user_input, memory):
-        prompt = f"""You are agentWinter for {project}.
+        # Auto-detect and geocode coordinates
+        coords = self.detect_coordinates(user_input)
+        location_info = ""
+        if coords:
+            location = self.geocode(coords[0], coords[1])
+            if location:
+                location_info = f"\n[Coordinates detected: {coords[0]}, {coords[1]} = {location}]"
+        
+        memory_str = json.dumps(memory, indent=2)[:800] if memory else "{}"
+        
+        prompt = f"""You are agentWinter, a helpful AI assistant.
 
-Memory: {json.dumps(memory, indent=2)}
+Project: {project}
+Memory: {memory_str}{location_info}
 
 User: {user_input}
 agentWinter:"""
         
-        process = subprocess.Popen(['ollama', 'run', 'deepseek-r1:8b', prompt],
-                                  stdout=subprocess.PIPE, text=True, bufsize=1)
+        process = subprocess.Popen(
+            ['ollama', 'run', 'deepseek-r1:8b', prompt],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            bufsize=1
+        )
         
-        response = ""
+        in_thinking = False
+        
         for line in process.stdout:
-            if "Thinking..." not in line and "...done thinking." not in line:
+            if "Thinking..." in line:
+                in_thinking = True
+                continue
+            if "...done thinking." in line:
+                in_thinking = False
+                continue
+            
+            if not in_thinking:
                 yield line
-                response += line
-        
-        return response
