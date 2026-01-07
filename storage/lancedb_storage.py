@@ -41,16 +41,95 @@ class LanceDBStorage(BaseStorage):
                 }
                 self.table = self.db.create_table('conversations', [schema])
             
-            self.conversation_id = str(uuid.uuid4())
+            self.conversation_id = None
             self.session = int(time.time())
             self.turn_number = 0
             
         except Exception as e:
             raise StorageError(f"LanceDB initialization failed: {e}")
     
+    def _format_date_for_display(self, timestamp: float) -> str:
+        """Format timestamp for clean display in list"""
+        dt = datetime.fromtimestamp(timestamp)
+        now = datetime.now()
+        
+        # Check if today
+        if dt.date() == now.date():
+            return dt.strftime("%I:%M %p").lstrip('0')  # "9:52 PM"
+        
+        # Check if yesterday
+        elif (now - dt).days == 1:
+            return f"Yesterday {dt.strftime('%I:%M %p').lstrip('0')}"
+        
+        # Check if this week
+        elif (now - dt).days < 7:
+            return dt.strftime("%a %I:%M %p").lstrip('0')  # "Mon 9:52 PM"
+        
+        # Older - show date
+        else:
+            return dt.strftime("%b %d, %I:%M %p").lstrip('0')  # "Jan 6, 9:52 PM"
+    
+    def list_all_conversations(self) -> List[Dict[str, Any]]:
+        """List all conversations with metadata"""
+        try:
+            result = self.table.search().limit(10000).to_pandas()
+            
+            if len(result) == 0:
+                return []
+            
+            # Group by conversation_id
+            conversations = {}
+            for _, row in result.iterrows():
+                conv_id = row['conversation_id']
+                if conv_id not in conversations:
+                    conversations[conv_id] = {
+                        'conversation_id': conv_id,
+                        'title': row['title'],
+                        'project': row['project'],
+                        'turn_count': 0,
+                        'last_updated': '',
+                        'timestamp': row['timestamp']
+                    }
+                conversations[conv_id]['turn_count'] += 1
+                # Keep most recent datetime
+                if row['timestamp'] > conversations[conv_id]['timestamp']:
+                    conversations[conv_id]['timestamp'] = row['timestamp']
+            
+            # Format dates for display
+            for conv in conversations.values():
+                conv['last_updated'] = self._format_date_for_display(conv['timestamp'])
+            
+            # Sort by most recent first
+            conv_list = list(conversations.values())
+            conv_list.sort(key=lambda x: x['timestamp'], reverse=True)
+            
+            return conv_list
+        except Exception as e:
+            raise StorageError(f"List conversations failed: {e}")
+    
+    def load_conversation(self, conversation_id: str) -> None:
+        """Load existing conversation by ID"""
+        try:
+            self.conversation_id = conversation_id
+            
+            # Get all turns to determine next turn_number
+            turns = self.get_all_turns()
+            if turns:
+                self.turn_number = max(t['turn_number'] for t in turns) + 1
+            else:
+                self.turn_number = 0
+                
+        except Exception as e:
+            raise StorageError(f"Load conversation failed: {e}")
+    
     def save_turn(self, user_msg: str, ai_msg: str, metadata: Dict[str, Any]) -> None:
         """Save turn with embedding"""
         try:
+            # If no conversation loaded, create new one
+            if self.conversation_id is None:
+                self.conversation_id = str(uuid.uuid4())
+                self.turn_number = 0
+            
             # Generate title on first turn
             if self.turn_number == 0:
                 title = self._generate_title(user_msg, ai_msg)
@@ -87,6 +166,9 @@ class LanceDBStorage(BaseStorage):
     def get_recent(self, limit: int) -> List[Dict[str, Any]]:
         """Get recent turns from current conversation"""
         try:
+            if self.conversation_id is None:
+                return []
+            
             result = self.table.search() \
                 .where(f"conversation_id = '{self.conversation_id}'") \
                 .limit(1000).to_pandas()
@@ -102,6 +184,9 @@ class LanceDBStorage(BaseStorage):
     def get_all_turns(self) -> List[Dict[str, Any]]:
         """Get all turns from current conversation"""
         try:
+            if self.conversation_id is None:
+                return []
+            
             result = self.table.search() \
                 .where(f"conversation_id = '{self.conversation_id}'") \
                 .limit(1000).to_pandas()
@@ -116,6 +201,9 @@ class LanceDBStorage(BaseStorage):
     def search(self, query: str, limit: int) -> List[Dict[str, Any]]:
         """Semantic search across conversations"""
         try:
+            if self.conversation_id is None:
+                return []
+            
             query_vector = self.model.encode(query).tolist()
             search = self.table.search(query_vector).limit(limit)
             search = search.where(f"conversation_id = '{self.conversation_id}'")
@@ -156,34 +244,3 @@ AI: {ai_msg[:100]}
             return title
         except:
             return "Conversation"
-    
-    def list_conversations(self, project: str = None) -> List[Dict[str, Any]]:
-        """List all conversations"""
-        try:
-            if project:
-                result = self.table.search() \
-                    .where(f"project = '{project}'") \
-                    .limit(10000).to_pandas()
-            else:
-                result = self.table.search().limit(10000).to_pandas()
-            
-            if len(result) == 0:
-                return []
-            
-            conversations = {}
-            for _, row in result.iterrows():
-                conv_id = row['conversation_id']
-                if conv_id not in conversations:
-                    conversations[conv_id] = {
-                        'conversation_id': conv_id,
-                        'title': row['title'],
-                        'project': row['project'],
-                        'turns': 0,
-                        'last_updated': row['datetime']
-                    }
-                conversations[conv_id]['turns'] += 1
-            
-            return list(conversations.values())
-        except Exception as e:
-            print(f"Error listing conversations: {e}")
-            return []

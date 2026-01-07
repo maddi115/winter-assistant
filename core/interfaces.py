@@ -23,6 +23,16 @@ class StorageInterface(ABC):
     def get_all_turns(self) -> List[Dict[str, Any]]:
         """Get all turns from current conversation"""
         pass
+    
+    @abstractmethod
+    def list_all_conversations(self) -> List[Dict[str, Any]]:
+        """List all conversations with metadata"""
+        pass
+    
+    @abstractmethod
+    def load_conversation(self, conversation_id: str) -> None:
+        """Load existing conversation by ID"""
+        pass
 
 class RAGInterface(ABC):
     """Abstract RAG retrieval interface"""

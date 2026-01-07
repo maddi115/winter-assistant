@@ -13,10 +13,11 @@ from retrieval.hybrid_rag import HybridRAG
 from retrieval.simple_rag import SimpleRAG
 from adapters.conversation_adapter import ConversationAdapter
 from ui.terminal import TerminalUI
+from ui.selection_menu import show_conversation_selector
 from core.errors import StorageError
 
 def main():
-    """Main entry point with graceful fallbacks"""
+    """Main entry point with conversation selector"""
     
     print("🚀 Winter Assistant - Modular Edition\n")
     
@@ -32,6 +33,30 @@ def main():
         print(f"⚠️  LanceDB failed: {e}")
         print("📦 Falling back to JSONL storage\n")
         storage = JSONLStorage(config)
+    
+    # Show conversation selector
+    print("🔍 Loading conversations...\n")
+    choice = show_conversation_selector(storage)
+    
+    if choice is None:
+        print("\n👋 Goodbye!\n")
+        sys.exit(0)
+    
+    # Load conversation or start new
+    conversation_title = "New Conversation"
+    if choice == "new":
+        print("\n✨ Starting new conversation\n")
+    else:
+        try:
+            storage.load_conversation(choice)
+            # Get conversation title
+            turns = storage.get_all_turns()
+            if turns:
+                conversation_title = turns[0].get('title', 'Conversation')
+            print(f"\n📜 Loaded: {conversation_title}\n")
+        except Exception as e:
+            print(f"\n⚠️  Failed to load conversation: {e}")
+            print("Starting new conversation instead\n")
     
     # Initialize RAG (with fallback)
     print("🔍 Initializing RAG...")
@@ -55,7 +80,7 @@ def main():
     
     # Wire everything together
     adapter = ConversationAdapter(storage, rag, ai)
-    ui = TerminalUI(adapter)
+    ui = TerminalUI(adapter, conversation_title)
     
     # Run
     try:

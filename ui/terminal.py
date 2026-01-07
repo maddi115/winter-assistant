@@ -9,8 +9,9 @@ from core.errors import UIError
 class TerminalUI:
     """Terminal-based user interface"""
     
-    def __init__(self, adapter: ConversationAdapter):
+    def __init__(self, adapter: ConversationAdapter, conversation_title: str = "New Conversation"):
         self.adapter = adapter
+        self.conversation_title = conversation_title
     
     def run(self):
         """Main UI loop"""
@@ -50,7 +51,7 @@ class TerminalUI:
     def show_header(self):
         """Display header"""
         print("="*60)
-        print("🚀 WINTER ASSISTANT")
+        print(f"🚀 WINTER ASSISTANT - {self.conversation_title}")
         print("="*60)
         print("\nCommands: history | search <query> | quit\n")
     
@@ -59,14 +60,14 @@ class TerminalUI:
         turns = self.adapter.get_recent_turns(10)
         
         if not turns:
-            print("\n📜 No conversation history\n")
+            print("\n📜 No conversation history yet\n")
             return
         
         print("\n📜 RECENT CONVERSATION\n")
         for t in turns:
             print(f"[{t.get('datetime', 'N/A')}]")
-            print(f"You: {t.get('user', '')[:50]}...")
-            print(f"AI: {t.get('assistant', '')[:80]}...")
+            print(f"You: {t.get('user', '')[:70]}")
+            print(f"AI: {t.get('assistant', '')[:100]}")
             print()
     
     def show_search_results(self, query: str):
@@ -80,7 +81,7 @@ class TerminalUI:
             return
         
         for i, r in enumerate(results, 1):
-            print(f"📍 Result {i} - {r.get('title', 'Untitled')} (Turn {r.get('turn_number', 0)})")
+            print(f"📍 Result {i} - Turn {r.get('turn_number', 0)}")
             print(f"   [{r.get('datetime', 'N/A')}]")
             print(f"   You: {r.get('user', '')[:60]}...")
             print(f"   AI: {r.get('assistant', '')[:80]}...")

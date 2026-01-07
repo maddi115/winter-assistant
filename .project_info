@@ -1,16 +1,2 @@
-🚀 WINTER ASSISTANT - Sculpted Memory AI
-
-GPU-accelerated assistant with auto-curated project memories. Stores compressed semantic facts with weights—not conversations. Sacred foundation, checkpoints, facts, states, outcomes hierarchy.
-
-QUICK START:
-  ai              - Start assistant
-  memory          - View memory sculpture
-  checkpoint      - Create compressed summary
-  projects        - List all projects
-  
-ADVANCED:
-  python add_foundation.py  - Add sacred principle
-  checkpoint list           - View all checkpoints
-  switch <name>            - Change projects
-
-Commands inside assistant: memory, projects, checkpoint, switch <name>, quit
+🍄 WINTER ASSISTANT
+Modular AI with RAG memory, vector search, conversation history
