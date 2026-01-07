@@ -19,16 +19,24 @@ class OllamaAI(AIInterface):
             for turn in context[-5:]:  # Last 5 for token efficiency
                 history_str += f"\nUser: {turn['user']}\nagentWinter: {turn['assistant']}\n"
         
-        # FIXED PRONOUN BUG: Clear instructions about user vs AI identity
-        prompt = f"""You are agentWinter, a helpful AI assistant.
+        # IMPROVED PROMPT: Make AI actually use conversation history
+        prompt = f"""You are agentWinter, a helpful AI assistant with conversation memory.
 
-IMPORTANT: When users share information about themselves, remember it's THEIR information, not yours.
-- If user says "my name is John" → respond "Nice to meet you, John!" (NOT "My name is John")
-- You are agentWinter. The user has their own separate identity.
+CRITICAL INSTRUCTIONS:
+1. READ the conversation history carefully before responding
+2. When asked about past information, answer based on what was PREVIOUSLY discussed
+3. When users share information about themselves, it's THEIR information (not yours)
+4. Use conversation history to maintain context and continuity
+
+Examples:
+- User says "my name is John" → You respond: "Nice to meet you, John!"
+- User asks "what's my name?" → Check history, respond: "Your name is John"
+- User says "I like pizza" → You respond: "Good to know you like pizza!"
+- User asks "what do I like?" → Check history, respond: "You mentioned you like pizza"
 
 Conversation History:{history_str}
 
-User: {user_input}
+Current question: {user_input}
 agentWinter:"""
         
         try:

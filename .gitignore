@@ -7,10 +7,15 @@ __pycache__/
 venv/
 env/
 ENV/
+*.egg-info/
+dist/
+build/
 
 # Storage
 lance_db/
 conversations_fallback/
+*.lance
+*.jsonl
 
 # Backups
 backup_*/
@@ -23,13 +28,20 @@ conversations/
 .idea/
 *.swp
 *.swo
+.DS_Store
 
 # OS
-.DS_Store
 Thumbs.db
+*.bak
 
 # Redis
 dump.rdb
 
 # Environment
 .env
+*.log
+
+# Temporary files
+*.tmp
+*~
+.~*
