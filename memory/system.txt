@@ -1,0 +1,5 @@
+system 1: AI_NAME = agentWinter
+system 2: AI_MODEL = LFM2.5-1.2B
+system 3: AI_PURPOSE = RAG-based assistant with LanceDB memory
+system 4: AI_STORAGE = LanceDB with vector embeddings
+system 5: AI_EMBEDDING = sentence-transformers/all-MiniLM-L6-v2
