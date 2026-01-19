@@ -23,6 +23,7 @@ class LFM2_5AI:
 
         output = self.model.generate(
             inputs,
+            do_sample=True,           # ← ADD THIS to enable temperature/top_p
             temperature=0.1,
             top_k=50,
             top_p=0.1,

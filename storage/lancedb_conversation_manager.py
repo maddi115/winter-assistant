@@ -2,7 +2,6 @@ import lancedb
 import json
 import time
 import uuid
-import subprocess
 from datetime import datetime
 from sentence_transformers import SentenceTransformer
 import os
@@ -14,19 +13,15 @@ class LanceDBConversationManager:
         self.current_session = int(time.time())
         self.turn_number = 0
 
-        # Initialize embedding model
         print("🔄 Loading embedding model...")
         self.model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
 
-        # Connect to LanceDB
         os.makedirs('lance_db', exist_ok=True)
         self.db = lancedb.connect('lance_db')
 
-        # Create or open table
         try:
             self.table = self.db.open_table('conversations')
         except:
-            # Create table with schema (first time)
             schema = {
                 "conversation_id": "",
                 "title": "",
@@ -42,50 +37,17 @@ class LanceDBConversationManager:
             }
             self.table = self.db.create_table('conversations', [schema])
 
-        # Load existing conversation if specified
         if conversation_id:
             turns = self.get_all_turns()
             if turns:
                 self.turn_number = max(t['turn_number'] for t in turns) + 1
 
-    def generate_title(self, first_user_msg, first_assistant_msg):
-        """Generate a 3-word title using ollama"""
-        print("🏷️  Generating conversation title...")
-        prompt = f"""Generate a 3-word title for this conversation. Only output 3 words, nothing else.
-
-User: {first_user_msg[:100]}
-AI: {first_assistant_msg[:100]}
-
-3-word title:"""
-        
-        try:
-            result = subprocess.run(
-                ['ollama', 'run', 'deepseek-r1:8b', prompt],
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
-            
-            title = result.stdout.strip()
-            if "...done thinking." in title:
-                title = title.split("...done thinking.")[-1].strip()
-            
-            # Clean up and limit to 3 words
-            words = title.strip().split()[:3]
-            title = " ".join(words)
-            
-            print(f"📝 Title: {title}")
-            return title
-        except:
-            return "Conversation"
-
     def save_turn(self, user_msg, assistant_msg, elapsed_time):
         """Save conversation turn with embedding"""
-        # Generate title on first turn
+        # Use first user message as title (no AI generation)
         if self.turn_number == 0:
-            title = self.generate_title(user_msg, assistant_msg)
+            title = user_msg[:50]  # First 50 chars of user input
         else:
-            # Get title from existing turns
             try:
                 result = self.table.search() \
                     .where(f"conversation_id = '{self.conversation_id}'") \
@@ -94,7 +56,6 @@ AI: {first_assistant_msg[:100]}
             except:
                 title = "Conversation"
 
-        # Combine user and assistant for embedding
         combined_text = f"user: {user_msg} | assistant: {assistant_msg}"
         vector = self.model.encode(combined_text).tolist()
 
@@ -121,10 +82,10 @@ AI: {first_assistant_msg[:100]}
             result = self.table.search() \
                 .where(f"conversation_id = '{self.conversation_id}'") \
                 .limit(1000).to_pandas()
-            
+
             if len(result) == 0:
                 return []
-            
+
             turns = result.sort_values('turn_number').to_dict('records')
             return turns
         except:
@@ -138,12 +99,12 @@ AI: {first_assistant_msg[:100]}
     def search_conversations(self, query, limit=5, current_conversation_only=False):
         """Semantic search across conversations"""
         query_vector = self.model.encode(query).tolist()
-        
+
         search = self.table.search(query_vector).limit(limit)
-        
+
         if current_conversation_only:
             search = search.where(f"conversation_id = '{self.conversation_id}'")
-        
+
         try:
             results = search.to_pandas().to_dict('records')
             return results
@@ -159,11 +120,10 @@ AI: {first_assistant_msg[:100]}
                     .limit(10000).to_pandas()
             else:
                 result = self.table.search().limit(10000).to_pandas()
-            
+
             if len(result) == 0:
                 return []
-            
-            # Group by conversation_id
+
             conversations = {}
             for _, row in result.iterrows():
                 conv_id = row['conversation_id']
@@ -176,7 +136,7 @@ AI: {first_assistant_msg[:100]}
                         'last_updated': row['datetime']
                     }
                 conversations[conv_id]['turns'] += 1
-            
+
             return list(conversations.values())
         except Exception as e:
             print(f"Error listing conversations: {e}")
