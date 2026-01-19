@@ -5,7 +5,7 @@ from rich.console import Console
 
 from core.interfaces import StorageInterface, RAGInterface, AIInterface
 from core.errors import StorageError, RAGError, AIError
-from core.memory_injector import MemoryInjector
+from core.integrations.memory_injector import Vessels, Router, Formatter
 
 console = Console()
 
@@ -16,18 +16,20 @@ class ConversationAdapter:
         self.storage = storage
         self.rag = rag
         self.ai = ai
-        self.injector = MemoryInjector()
+        self.vessels = Vessels()
+        self.router = Router(self.vessels)
+        self.formatter = Formatter()
 
     def chat(self, user_input: str) -> Dict[str, Any]:
         """Handle complete chat interaction"""
         start_time = time.time()
 
         # ROUTER: Check if this is a simple fact question
-        fact_key, fact_data = self.injector.route(user_input)
+        fact_key, fact_data = self.router.route(user_input)
         
         if fact_key and fact_data:
             # Direct fact retrieval - bypass AI entirely
-            response = self.injector.format_response(fact_key, fact_data)
+            response = self.formatter.format_response(fact_key, fact_data)
             elapsed = time.time() - start_time
             
             try:
@@ -40,7 +42,7 @@ class ConversationAdapter:
             yield f"\n\n⏱️  {elapsed:.2f}s\n"
             return
 
-        # Complex question - use AI with RAG (no citations, just context)
+        # Complex question - use AI with RAG
         try:
             context = self.rag.retrieve(user_input, self.storage, limit=6)
         except RAGError as e:
