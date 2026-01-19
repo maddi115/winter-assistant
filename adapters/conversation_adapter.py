@@ -1,10 +1,13 @@
 """Conversation adapter - orchestrates core + storage + RAG"""
 import time
 from typing import Dict, Any, Iterator
+from rich.console import Console
 
 from core.interfaces import StorageInterface, RAGInterface, AIInterface
 from core.errors import StorageError, RAGError, AIError
 from core.memory_injector import MemoryInjector
+
+console = Console()
 
 class ConversationAdapter:
     """Orchestrates conversation flow with error handling"""
@@ -27,19 +30,17 @@ class ConversationAdapter:
             response = self.injector.format_response(fact_key, fact_data)
             elapsed = time.time() - start_time
             
-            # Save turn
             try:
                 self.storage.save_turn(user_input, response, {'elapsed': elapsed})
             except StorageError as e:
                 print(f"\n⚠️  Storage failed: {e}")
             
-            # Yield response
-            yield response
+            console.print(response)
+            yield ""
             yield f"\n\n⏱️  {elapsed:.2f}s\n"
             return
 
-        # Complex question - use AI with RAG
-        # 1. Retrieve context (with fallback)
+        # Complex question - use AI with RAG (no citations, just context)
         try:
             context = self.rag.retrieve(user_input, self.storage, limit=6)
         except RAGError as e:
@@ -49,7 +50,6 @@ class ConversationAdapter:
             print(f"⚠️  Retrieval error: {e}")
             context = []
 
-        # 2. Generate response (streaming)
         try:
             response_chunks = []
             for chunk in self.ai.generate(user_input, context):
@@ -59,7 +59,6 @@ class ConversationAdapter:
             response = ''.join(response_chunks)
             elapsed = time.time() - start_time
 
-            # 3. Save turn (non-blocking failure)
             try:
                 self.storage.save_turn(user_input, response, {'elapsed': elapsed})
             except StorageError as e:

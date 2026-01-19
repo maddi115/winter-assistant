@@ -17,7 +17,7 @@ class OllamaAI:
         if not vessels_file.exists():
             return ""
         
-        lines = ["[USER FACTS - Reference these when relevant:]"]
+        lines = ["[USER FACTS - Reference when relevant:]"]
         for line in vessels_file.read_text().splitlines():
             if line.strip():
                 lines.append(line.strip())
@@ -32,7 +32,7 @@ class OllamaAI:
                 for turn in context[-5:]:
                     history_str += f"\nUser: {turn['user']}\nagentWinter: {turn['assistant']}\n"
 
-            # System prompt with vessel injection
+            # System prompt - vessels injected for context, no citation instruction
             prompt = f"""You are agentWinter, a RAG-based AI assistant.
 
 SYSTEM IDENTITY:
@@ -42,11 +42,6 @@ SYSTEM IDENTITY:
 - Your storage: Hybrid RAG (recent context + semantic search)
 
 {self.vessels_text}
-
-CONTEXT ABOUT YOUR SYSTEM:
-- You can only access the CURRENT conversation's history unless the user loads a past one
-- When users ask about "your memory", they mean the technical RAG/storage system
-- You are a software system, not a human
 
 Conversation History:{history_str}
 

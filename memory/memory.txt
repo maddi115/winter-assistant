@@ -1,4 +1,5 @@
 vessel 1: USER_NAME = Maddi
 vessel 2: PROJECT = Winter Assistant
-vessel 3: GPU = NVIDIA GeForce RTX 3050
+vessel 3: GPU = NVIDIA GeForce RTX 3050 8GB VRAM
 vessel 4: LOCATION = Los Angeles
+

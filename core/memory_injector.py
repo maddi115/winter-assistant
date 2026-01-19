@@ -2,7 +2,6 @@
 import re
 from pathlib import Path
 from typing import Optional, Dict, Tuple
-from colorama import Fore, Back, Style
 
 class MemoryInjector:
     """Routes questions to direct facts or AI reasoning"""
@@ -35,8 +34,8 @@ class MemoryInjector:
         return {
             'USER_NAME': [r'\bmy name\b', r'what.*i called', r'who am i', r"what's my name", r'name again'],
             'PROJECT': [r'\bmy project\b', r'working on', r'building', r"what's.*project"],
-            'GPU': [r'\bmy gpu\b', r'what.*graphics', r'gpu.*have', r'what gpu'],
-            'LOCATION': [r'where am i', r'my location', r'what.*city'],  # More specific!
+            'GPU': [r'\bmy gpu\b', r'what.*graphics', r'gpu.*have', r'what gpu', r'\bvram\b', r'how much vram', r'video memory'],
+            'LOCATION': [r'where am i', r'my location', r'what.*city'],
             'AI_NAME': [r'\byour name\b', r'who are you', r"what's your name"],
             'AI_MODEL': [r'\bwhat model\b', r'which.*llm', r'what.*model.*you'],
             'AI_PURPOSE': [r'what.*you do', r'your purpose'],
@@ -48,9 +47,7 @@ class MemoryInjector:
         """Check if input is actually a question"""
         text_lower = text.lower().strip()
         
-        # Question markers
         if text.endswith('?'):
-            # But exclude rhetorical/statement questions like "you know where i live?"
             negative_patterns = [
                 r'you know',
                 r'you have',
@@ -64,14 +61,12 @@ class MemoryInjector:
                     return False
             return True
         
-        # Question words at start
         question_words = ['what', 'where', 'who', 'when', 'why', 'how', 'which']
         first_word = text_lower.split()[0] if text_lower.split() else ''
         return first_word in question_words
     
     def route(self, user_input: str) -> Tuple[Optional[str], Optional[Dict]]:
         """Route question to fact or AI"""
-        # Skip routing if not a real question
         if not self._is_question(user_input):
             return None, None
         
@@ -92,7 +87,7 @@ class MemoryInjector:
         return None, None
     
     def format_response(self, key: str, fact_data: Dict) -> str:
-        """Format fact response with attribution"""
+        """Format fact response with Rich markup"""
         value = fact_data['value']
         fact_type = fact_data['type']
         number = fact_data['number']
@@ -112,10 +107,27 @@ class MemoryInjector:
         response = templates.get(key, value)
         
         if fact_type == 'vessel':
-            attribution = f"{Back.RED}{Fore.WHITE}[FROM: memory.txt vessel {number}: {key}]{Style.RESET_ALL}"
+            attribution = f"[bold magenta on black][FROM: memory.txt vessel {number}: {key}][/]"
             return f"{response} {attribution}"
         else:
             return response
+    
+    def highlight_vessels_in_response(self, response: str) -> str:
+        """Highlight vessel citations in AI responses"""
+        # Match patterns like: (Reference: GPU = NVIDIA GeForce RTX 3050 8GB VRAM)
+        pattern = r'\(Reference: ([A-Z_]+) = ([^)]+)\)'
+        
+        def replace_citation(match):
+            key = match.group(1)
+            value = match.group(2)
+            # Find the vessel number
+            for vessel_key, vessel_data in self.vessels.items():
+                if vessel_key == key:
+                    num = vessel_data['number']
+                    return f"[bold magenta on black][FROM: memory.txt vessel {num}: {key}][/]"
+            return match.group(0)  # Return original if not found
+        
+        return re.sub(pattern, replace_citation, response)
     
     def get_all_vessels_text(self) -> str:
         """Get all vessels as text for AI prompt injection"""
