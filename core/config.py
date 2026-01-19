@@ -1,39 +1,32 @@
 """Configuration management - all settings in one place"""
-import os
 from dataclasses import dataclass
-from typing import Optional
+from pathlib import Path
+import json
 
 @dataclass
 class Config:
-    # Storage
-    storage_backend: str = "lancedb"
-    storage_path: str = "./lance_db"
-    
-    # AI
-    ai_model: str = "deepseek-r1:8b"
-    ai_backend: str = "ollama"
-    
-    # RAG
-    rag_strategy: str = "hybrid"
-    rag_recent_limit: int = 3
-    rag_semantic_limit: int = 3
-    
-    # Embeddings
-    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
-    
-    # Redis (legacy support)
-    redis_host: str = "localhost"
-    redis_port: int = 6379
-    
-    # UI
-    ui_backend: str = "terminal"
-    
+    """System configuration"""
+    db_path: str = "lance_db"
+    storage_path: str = "storage"
+    conv_history_path: str = "conversations_fallback"
+    embedding_model: str = "Qwen/Qwen3-Embedding-0.6B"
+    model_name: str = "LFM2.5-1.2B"
+    temperature: float = 0.7
+    rag_recent_limit: int = 5
+    context_window: int = 4096
+
     @classmethod
-    def load(cls) -> 'Config':
-        """Load configuration from environment or defaults"""
-        return cls(
-            storage_backend=os.getenv('WINTER_STORAGE', 'lancedb'),
-            storage_path=os.getenv('WINTER_STORAGE_PATH', './lance_db'),
-            ai_model=os.getenv('WINTER_AI_MODEL', 'deepseek-r1:8b'),
-            rag_strategy=os.getenv('WINTER_RAG', 'hybrid'),
-        )
+    def load(cls, config_path: str = "config.json"):
+        path = Path(config_path)
+        if path.exists():
+            with open(path) as f:
+                try:
+                    data = json.load(f)
+                    return cls(**data)
+                except:
+                    return cls()
+        return cls()
+
+    def save(self, config_path: str = "config.json"):
+        with open(config_path, 'w') as f:
+            json.dump(self.__dict__, f, indent=2)

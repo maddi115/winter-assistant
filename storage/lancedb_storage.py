@@ -37,7 +37,7 @@ class LanceDBStorage(BaseStorage):
                     "user": "",
                     "assistant": "",
                     "elapsed": 0.0,
-                    "vector": [0.0] * 384
+                    "vector": [0.0] * 1024
                 }
                 self.table = self.db.create_table('conversations', [schema])
 

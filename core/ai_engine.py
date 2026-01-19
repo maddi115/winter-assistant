@@ -25,7 +25,7 @@ class OllamaAI:
 SYSTEM IDENTITY:
 - Your name: agentWinter
 - Your model: LFM2.5-1.2B (Liquid AI) with GPU acceleration
-- Your memory: LanceDB with vector embeddings (sentence-transformers/all-MiniLM-L6-v2)
+- Your memory: LanceDB with vector embeddings (Qwen/Qwen3-Embedding-0.6B)
 - Your storage: Hybrid RAG (recent context + semantic search)
 
 {self.vessels.get_all_text()}
