@@ -1,0 +1,11 @@
+{
+  "db_path": "lance_db",
+  "storage_path": "storage",
+  "conv_history_path": "conversations_fallback",
+  "embedding_model": "Qwen/Qwen3-Embedding-0.6B",
+  "model_name": "gemma2:2b",
+  "temperature": 0.7,
+  "rag_recent_limit": 15,
+  "rag_semantic_limit": 10,
+  "context_window": 4096
+}
