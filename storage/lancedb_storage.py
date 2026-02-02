@@ -1,4 +1,8 @@
 """LanceDB storage implementation"""
+import os
+os.environ["HF_HUB_OFFLINE"] = "1"
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
+
 import lancedb
 import uuid
 import time
@@ -18,7 +22,7 @@ class LanceDBStorage(BaseStorage):
 
         try:
             print("🔄 Loading embedding model...")
-            self.model = SentenceTransformer(config.embedding_model)
+            self.model = SentenceTransformer(config.embedding_model, local_files_only=True)
 
             os.makedirs(config.storage_path, exist_ok=True)
             self.db = lancedb.connect(config.storage_path)
