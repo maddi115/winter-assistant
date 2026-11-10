@@ -35,6 +35,21 @@ class ConversationAdapter:
         except StorageError as e:
             print(f"\n⚠️  Storage failed: {e}")
 
+    def _ai_instead_of_idk(self, user_input, res):
+        """Everything said my messages don't answer this. Let the AI reply,
+        but only keep it if it doesn't invent a like, memory or fact about me."""
+        from transport.checker import invents_facts
+        try:
+            reply = self.ai.no_evidence_reply(user_input)
+        except Exception as e:
+            res.debug["ai_fallback"] = f"error: {e}"
+            return res
+        res.debug["ai_fallback"] = reply
+        if not reply or invents_facts(reply) or len(reply.split()) > 45:
+            return res                       # unsafe -> plain idk
+        res.text, res.route = reply, "ai_no_evidence"
+        return res
+
     def chat(self, user_input: str) -> Iterator[str]:
         start = time.time()
 
@@ -60,6 +75,10 @@ class ConversationAdapter:
             if question:
                 try:
                     res = self.transport.answer(question, exclude, tone_source=user_input)
+                    if (res.route.startswith("idk") and not exclude
+                            and getattr(self.config, "idk_mode", "ai") == "ai"
+                            and hasattr(self.ai, "no_evidence_reply")):
+                        res = self._ai_instead_of_idk(user_input, res)
                     self.shown.update(res.used_ids)
                     self.last_evidence_q = question
                     self.last_route, self.last_debug = res.route, res.debug

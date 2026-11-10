@@ -41,7 +41,8 @@ class Config:
     stability_min: float = 0.60       # stasis gate
     confidence_min: float = 0.45      # stasis gate
     winner_margin: float = 0.10       # clear-winner gap between #1 and #2
-    agree_skip: bool = True           # top 3 agree -> answer without the AI
+    agree_skip: bool = True           # yes/no: top 3 agree -> answer without the AI
+    idk_mode: str = "ai"              # no evidence: "ai" = AI replies without inventing facts, "template" = plain idk
     opener_max_words: int = 10        # pick mode
     write_max_words: int = 25         # write mode
     debug: bool = False               # print route / stasis / votes after each answer

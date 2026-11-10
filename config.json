@@ -27,5 +27,7 @@
   "opener_max_words": 10,
   "write_max_words": 25,
   "debug": false,
-  "llm_timeout": 90
+  "llm_timeout": 90,
+  "agree_skip": true,
+  "idk_mode": "ai"
 }

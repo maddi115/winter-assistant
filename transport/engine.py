@@ -75,8 +75,10 @@ class TransportModel:
         # 5. clear winner?
         margin = top[0]["combo"] - (top[1]["combo"] if len(top) > 1 else 0.0)
         # the answer must contain the question's rarest word (e.g. "burrito", not "get")
-        # ...or at least 2 of the top 3 contain it (they agree, so no need to ask the AI)
-        agree = (c.agree_skip and len(top) >= 2 and top[0]["has_anchor"]
+        # ...or (yes/no questions only) at least 2 of the top 3 contain it: they agree,
+        # and the sentiment rules double-check the verdict. Open questions ("what's your
+        # favorite food?") still go to the AI, because sharing a word isn't an answer.
+        agree = (c.agree_skip and qtype == "yes_no" and len(top) >= 2 and top[0]["has_anchor"]
                  and sum(x["has_anchor"] for x in top[:3]) >= 2)
         clear = top[0]["has_anchor"] and (len(top) == 1 or margin >= c.winner_margin or agree)
         debug.update(margin=round(margin, 3), agree=agree)

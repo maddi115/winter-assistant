@@ -208,9 +208,11 @@ def main():
     res = tm.answer(q)
     check("AI timeout -> algorithm answers instead of hanging", res.route == "algo_fallback"
           and "video games" in res.text, (res.route, res.text))
-    _, _, tm = build(tmp, ballots=[json.dumps({"pick": [], "style": 1})] * 3)
+    _, _, tm = build(tmp, ballots=[json.dumps({"pick": [1], "style": 1})] * 3)
+    res = tm.answer("do you play video games?")
+    check("yes/no + top results agree -> no AI needed", res.route == "algo", res.route)
     res = tm.answer("what games do you play?")
-    check("top results agree -> no AI needed (clear winner)", res.route == "algo", res.route)
+    check("open question -> agreement shortcut NOT used, AI decides", res.route == "ai_pick", res.route)
 
     print("\nE. No repeats on follow-ups (adapter)")
 
@@ -235,6 +237,27 @@ def main():
     a2c = "".join(ad.chat("anything else?"))
     print("     4th →", a2c.split("\n")[0])
     check("follow-up with nothing left -> 'that's all'", "all" in a2c.lower() and "never" not in a2c.lower(), a2c)
+    class SafeAI(NoAI):
+        def no_evidence_reply(self, q):
+            return "never really talked about quantum physics tbh, why?"
+
+    class LyingAI(NoAI):
+        def no_evidence_reply(self, q):
+            return "oh I love quantum physics, I used to study it"
+
+    ad.ai = SafeAI()
+    out = "".join(ad.chat("do you like quantum physics?"))
+    check("no evidence -> AI reply kept when it invents nothing", out.startswith("never really talked")
+          and ad.last_route == "ai_no_evidence", (ad.last_route, out))
+    ad.ai = LyingAI()
+    out = "".join(ad.chat("do you like quantum physics?"))
+    check("no evidence -> AI reply that invents a like is thrown out -> idk",
+          "love" not in out and ad.last_route.startswith("idk"), (ad.last_route, out))
+    from transport.checker import invents_facts
+    check("checker: 'my favorite is X' counts as inventing", invents_facts("tbh my favorite is ramen"))
+    check("checker: 'never talked about it, what about you?' is safe",
+          not invents_facts("never really talked about it, what about you?"))
+    ad.ai = NoAI()
     a3 = "".join(ad.chat("how do i store rice?"))
     check("not about me -> general chat", a3.startswith("general"), a3)
 

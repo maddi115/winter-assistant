@@ -28,6 +28,21 @@ def parse_reply(raw: str):
     return [int(n) for n in re.findall(r"\b\d{1,2}\b", raw)], ""
 
 
+CLAIMS = [r"\bi (really |kinda |lowkey |honestly |actually )?(prefer|adore|enjoy|like|love|hate|dislike)\b",
+          r"\bmy (fav|favorite|favourite)\b", r"\bi'?m (really |so |kinda )?(into|obsessed|a fan)\b",
+          r"\bi (used to|always|usually|grew up|remember|once)\b", r"\bi (went|ate|played|watched|had|was)\b",
+          r"\byou said\b", r"\bas an ai\b"]
+
+
+def invents_facts(reply: str) -> bool:
+    """True if a no-evidence reply claims a like/dislike/memory/fact about me."""
+    from transport.verdict import polarity
+    low = reply.lower().replace("’", "'")
+    if any(re.search(p, low) for p in CLAIMS):
+        return True
+    return polarity(reply) != 0
+
+
 def clean_picks(picks: List[int], n: int) -> List[int]:
     out = []
     for p in picks:

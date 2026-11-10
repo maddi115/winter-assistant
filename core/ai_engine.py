@@ -34,6 +34,21 @@ class OllamaAI:
         self.vessels = Vessels()
         self.style = style_samples or []
 
+    def no_evidence_reply(self, question: str) -> str:
+        """Last step, only when my own messages don't answer a question about me.
+        The AI may react, say I've never talked about it, or answer the general part,
+        but must NOT invent a like, dislike, memory or fact about me (checked after)."""
+        p = self.config.persona_name
+        system = persona_prompt(self.config, self.vessels.get_all_text(), self.style) + (
+            f"\n\nIMPORTANT: {p}'s saved messages say NOTHING about this question.\n"
+            f"- Do NOT claim any like, dislike, favorite, opinion, memory or fact about {p}.\n"
+            f"- You MAY say you've never really talked about it, react casually, ask something back, "
+            f"or answer the general-knowledge part.\n"
+            f"- Max 2 short sentences."
+        )
+        messages = [{"role": "system", "content": system}, {"role": "user", "content": question}]
+        return "".join(self.model.stream(messages, max_tokens=80)).strip()
+
     def generate(self, user_input: str, context: List[Dict[str, Any]]) -> Iterator[str]:
         """Stream a reply as text pieces (newlines kept)."""
         try:
