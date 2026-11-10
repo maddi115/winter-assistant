@@ -20,8 +20,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from core.config import Config
 from twitch.rules import Incoming, parse_event, question_for_bot, Cooldown
 
-TWITCH_CONTEXT = ("You're chatting in Twitch chat with strangers. Reply in 1-2 short sentences "
-                  "(under 300 characters), no links, no lists, never @everyone.")
+TWITCH_CONTEXT = ("You're a regular person hanging out in Twitch chat, NOT an assistant. "
+                  "Type like a real chatter: lowercase, usually 2-12 words, no emojis, no exclamation marks, "
+                  "slang is fine. Don't greet formally, don't offer help, don't end with 'what's up?' "
+                  "or 'how about you?'. React like a friend would (lol, fr, nah, bet, same). "
+                  "No links, no lists, never @everyone.")
 
 
 def build_brain(config, no_ai=False):
@@ -124,7 +127,8 @@ async def live(config, brain):
                 log(f"🚫 #{m.channel} {m.user}: {q[:60]} -> nothing safe to send [{route}]")
                 continue
             await asyncio.sleep(cd.wait_global())
-            sent, why = await asyncio.to_thread(helix.send, m.channel_id, bot_id, reply, m.message_id)
+            sent, why = await asyncio.to_thread(helix.send, m.channel_id, bot_id, reply,
+                                            m.message_id if config.twitch_reply_thread else None)
             cd.mark(m.user)
             mark = "💬" if sent else f"⚠️  not sent ({why})"
             log(f"{mark} #{m.channel} {m.user}: {q[:60]}\n          -> {reply}   [{route} · {time.time() - t0:.1f}s]")

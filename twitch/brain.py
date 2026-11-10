@@ -7,6 +7,10 @@ from collections import OrderedDict
 
 from core import colors
 from twitch.rules import chat_line
+from twitch.humanize import humanize
+
+
+AI_ROUTES = {"general", "ai_no_evidence"}
 
 
 class ChatterMemory:
@@ -53,4 +57,6 @@ class Brain:
             return line, "stranger_self"
         out = colors.strip("".join(a.chat(question)))
         line = chat_line(out, self.c.twitch_max_chars, self.c.twitch_citations, self.c.twitch_block_words)
+        if line and self.c.twitch_humanize and a.last_route in AI_ROUTES:
+            line = humanize(line)            # the AI's own words only, never Maddi's quotes
         return line, a.last_route

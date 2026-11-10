@@ -141,6 +141,33 @@ check("old chatters dropped past the limit", len(b.chatters) == 2 and "viewer1" 
 line, route = b.reply("madddyyyyi", "madddyyyyi", "whats my name")
 check("the owner still gets the real answer", route == "general", route)
 
+print("\nE2. Sounds like a person, not a bot")
+from twitch.humanize import humanize
+from core.reflexes import reflex
+check("'hey bro! what's up? 🫡' -> 'hey bro'", humanize("hey bro! what's up? 🫡") == "hey bro", humanize("hey bro! what's up? 🫡"))
+check("no emoji, no '!', lowercase", humanize("Lol cute, did a cat just speak to you? 😹") == "lol cute, did a cat just speak to you?",
+      humanize("Lol cute, did a cat just speak to you? 😹"))
+check("no assistant opener", humanize("Hello there! Pizza is great.") == "hey pizza is great", humanize("Hello there! Pizza is great."))
+check("drops trailing period", humanize("nah not really.") == "nah not really")
+check("never empties a reply", humanize("what's up?") != "")
+for m in ["meow", "MEOW", "meowww", "meow meow", "mrow", "  meow!  ", "nyaa"]:
+    check(f"'{m}' -> meow back", (reflex(m) or "").startswith("meow"), reflex(m))
+check("'meow baow' is one of them", "meow baow" in __import__("core.reflexes", fromlist=["x"]).MEOW_BACK)
+check("normal text isn't a meow", reflex("homeowner") is None and reflex("meow is my cat's name") is None)
+c2 = Config(); c2.owner_handles = []
+
+
+class QuoteAdapter(FakeAdapter):
+    def chat(self, q):
+        self.last_route = "algo"
+        yield "For sure. I LOVE burritos! [1]\n   [1] twitch\n"
+
+
+bq = brain_mod.Brain(c2, QuoteAdapter)
+check("Maddi's real quotes are NOT humanized", bq.reply("v", "V", "do you like burritos")[0] == "For sure. I LOVE burritos!")
+bg = brain_mod.Brain(c2, FakeAdapter)
+check("AI chat lines ARE humanized", bg.reply("v", "V", "Hi")[0] == "reply to hi (seen 0)")
+
 print("\nF. Login (device code flow, faked)")
 calls = []
 
@@ -224,7 +251,8 @@ check("followed Twitch's reconnect url", conns == ["/ws", "/re"], conns)
 
 print("\nH. Config")
 c = Config()
-check("defaults: prefix, cooldowns, 450 chars", (c.twitch_prefix, c.twitch_user_cooldown, c.twitch_max_chars) == ("!winter", 20, 450))
+check("defaults: prefix, cooldowns, 450 chars", (c.twitch_prefix, c.twitch_user_cooldown, c.twitch_max_chars) == ("!winter", 4, 450))
+check("no reply threads by default (normal chatter)", c.twitch_reply_thread is False)
 check("token file is git-ignored", "twitch_token.json" in (Path(__file__).resolve().parent.parent / ".gitignore").read_text())
 from core.ai_engine import persona_prompt
 c.chat_context = "TWITCH LINE"

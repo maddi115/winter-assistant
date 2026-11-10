@@ -56,6 +56,16 @@ class ConversationAdapter:
     def chat(self, user_input: str) -> Iterator[str]:
         start = time.time()
 
+        # 0. reflexes ("meow" -> "meow baow")
+        from core.reflexes import reflex
+        quick = reflex(user_input)
+        if quick:
+            self.last_route, self.last_debug = "reflex", {}
+            self._save(user_input, quick, start)
+            yield quick
+            yield f"\n\n⏱️  {time.time() - start:.2f}s · reflex\n"
+            return
+
         # 1. exact fact
         fact_key, fact_data = self.router.route(user_input)
         if fact_key and fact_data:

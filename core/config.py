@@ -65,8 +65,10 @@ class Config:
     twitch_channels: List[str] = field(default_factory=list)   # channels to chat in, e.g. ["yourchannel"]
     twitch_prefix: str = "!winter"    # "!winter do you like burritos?" (also answers @mentions + replies)
     twitch_reply_all: bool = True     # true = chats like a normal viewer (answers every message, not just @/!winter)
-    twitch_user_cooldown: int = 20    # seconds before the same chatter gets another answer
+    twitch_user_cooldown: int = 4     # seconds before the same chatter gets another answer
     twitch_global_cooldown: int = 3   # seconds between any two bot messages
+    twitch_reply_thread: bool = False # true = uses Twitch's "Replying to @x" (normal people mostly don't)
+    twitch_humanize: bool = True      # AI lines: lowercase, no "!", no emoji spam, no "what's up?" endings
     twitch_max_queue: int = 5         # questions waiting; more than this get skipped
     twitch_max_chars: int = 450       # Twitch limit is 500
     twitch_citations: bool = False    # true = keep [1][2] in chat
