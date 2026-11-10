@@ -1,5 +1,5 @@
-system 1: AI_NAME = agentWinter
-system 2: AI_MODEL = LFM2.5-1.2B
-system 3: AI_PURPOSE = RAG-based assistant with LanceDB memory
+system 1: AI_NAME = Maddi's AI
+system 2: AI_MODEL = qwen3.5:4b through Ollama
+system 3: AI_PURPOSE = an AI that answers as Maddi, quoting things Maddi actually said
 system 4: AI_STORAGE = LanceDB with vector embeddings
 system 5: AI_EMBEDDING = Qwen/Qwen3-Embedding-0.6B

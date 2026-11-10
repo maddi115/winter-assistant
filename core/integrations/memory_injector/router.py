@@ -1,68 +1,52 @@
-"""Router - pattern matching and question routing"""
+"""Router - answers a few EXACT questions instantly from memory.txt / system.txt.
+
+Patterns match the WHOLE question (after lowercasing and removing punctuation),
+so "how do i store rice?" no longer gets hijacked by the word "store".
+"""
 import re
 from typing import Optional, Dict, Tuple
 
+YOU = r"(you|u)"
+YOUR = r"(your|ur)"
+WHATS = r"(whats|what is)"
+
+
+def normalize(text: str) -> str:
+    text = text.lower().replace("’", "'").replace("'", "")
+    text = re.sub(r"[^\w\s]", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
 class Router:
-    """Routes questions to direct facts or AI reasoning"""
-    
+    """Routes exact questions to stored facts; everything else returns (None, None)."""
+
+    PATTERNS = {
+        'USER_NAME': [rf"^{WHATS} {YOUR} name( again)?$", rf"^who (are|r) {YOU}$"],
+        'LOCATION': [rf"^where (are|r) {YOU}( from| based| located| at)?$",
+                     rf"^where do {YOU} live$"],
+        'PROJECT': [rf"^what (are|r) {YOU} (working on|building)( right now| rn)?$",
+                    rf"^{WHATS} {YOUR} project$"],
+        'GPU': [rf"^(what|which) (gpu|graphics card) (do|does) {YOU} have$",
+                rf"^{WHATS} {YOUR} (gpu|graphics card)$",
+                rf"^how much vram (do|does) {YOU} have$"],
+        'AI_DISCLOSURE': [rf"^(are|r) {YOU} (an |a )?(ai|bot|robot|real|human|a real person)$"],
+        'AI_MODEL': [rf"^what (model|llm) (are|r) {YOU}( running| using| on)?$"],
+        'AI_STORAGE': [rf"^what database do {YOU} use$"],
+        'AI_EMBEDDING': [rf"^what embedding model do {YOU} use$"],
+    }
+    # which stored fact answers each pattern group
+    FACT_FOR = {'AI_DISCLOSURE': 'AI_NAME'}
+
     def __init__(self, vessels_obj):
         self.vessels = vessels_obj.vessels
         self.system_facts = vessels_obj.system_facts
-        self.patterns = self._build_patterns()
-    
-    def _build_patterns(self) -> Dict:
-        """Define patterns for routing questions to facts"""
-        return {
-            'USER_NAME': [r'\bmy name\b', r'what.*i called', r'who am i', r"what's my name", r'name again'],
-            'PROJECT': [r'\bmy project\b', r'working on', r'building', r"what's.*project"],
-            'GPU': [r'\bmy gpu\b', r'what.*graphics', r'gpu.*have', r'what gpu', r'\bvram\b', r'how much vram', r'video memory'],
-            'LOCATION': [r'where am i', r'my location', r'what.*city', r"what's my location", r'whats my location'],
-            'AI_NAME': [r'\byour name\b', r'who are you', r"what's your name"],
-            'AI_MODEL': [r'\bwhat model\b', r'which.*llm', r'what.*model.*you'],
-            'AI_PURPOSE': [r'what.*you do', r'your purpose'],
-            'AI_STORAGE': [r'how.*store', r'what.*database'],
-            'AI_EMBEDDING': [r'embedding model', r'what.*embeddings']
-        }
-    
-    def _is_question(self, text: str) -> bool:
-        """Check if input is actually a question"""
-        text_lower = text.lower().strip()
-        
-        if text.endswith('?'):
-            negative_patterns = [
-                r'you know',
-                r'you have',
-                r'thats? creepy',
-                r'creeper',
-                r'why do you',
-                r'how do you know'
-            ]
-            for pattern in negative_patterns:
-                if re.search(pattern, text_lower):
-                    return False
-            return True
-        
-        question_words = ['what', 'where', 'who', 'when', 'why', 'how', 'which']
-        first_word = text_lower.split()[0] if text_lower.split() else ''
-        return first_word in question_words
-    
+
     def route(self, user_input: str) -> Tuple[Optional[str], Optional[Dict]]:
-        """Route question to fact or AI"""
-        if not self._is_question(user_input):
-            return None, None
-        
-        user_lower = user_input.lower()
-        
-        for key, patterns in self.patterns.items():
-            if key in self.vessels:
-                for pattern in patterns:
-                    if re.search(pattern, user_lower):
-                        return key, self.vessels[key]
-        
-        for key, patterns in self.patterns.items():
-            if key in self.system_facts:
-                for pattern in patterns:
-                    if re.search(pattern, user_lower):
-                        return key, self.system_facts[key]
-        
+        q = normalize(user_input)
+        for key, patterns in self.PATTERNS.items():
+            if any(re.match(p, q) for p in patterns):
+                fact_key = self.FACT_FOR.get(key, key)
+                data = self.vessels.get(fact_key) or self.system_facts.get(fact_key)
+                if data:
+                    return key, data
         return None, None

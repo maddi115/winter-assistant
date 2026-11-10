@@ -1,31 +1,24 @@
-"""Formatter - Rich highlighting for vessel responses"""
+"""Formatter - turns a stored fact into a first-person reply (the agent speaks as the owner)."""
+
 
 class Formatter:
-    """Format vessel responses with Rich markup"""
-    
-    @staticmethod
-    def format_response(key: str, fact_data: dict) -> str:
-        """Format fact response with Rich markup"""
+    def __init__(self, persona_name: str = "Maddi"):
+        self.persona = persona_name
+
+    def format_response(self, key: str, fact_data: dict) -> str:
         value = fact_data['value']
-        fact_type = fact_data['type']
-        number = fact_data['number']
-        
         templates = {
-            'USER_NAME': f"Your name is {value}.",
-            'PROJECT': f"You're working on {value}.",
-            'GPU': f"You have a {value}.",
-            'LOCATION': f"You're in {value}.",
+            'USER_NAME': f"I'm {value}.",
+            'PROJECT': f"I'm working on {value}.",
+            'GPU': f"I've got an {value}.",
+            'LOCATION': f"I'm in {value}.",
+            'AI_DISCLOSURE': (f"Yeah, I'm {value}, an AI that talks as {self.persona} "
+                              f"using things {self.persona} actually said."),
             'AI_NAME': f"I'm {value}.",
             'AI_MODEL': f"I'm running {value}.",
-            'AI_PURPOSE': f"I'm {value}.",
             'AI_STORAGE': f"I use {value}.",
-            'AI_EMBEDDING': f"I use {value} for embeddings."
+            'AI_EMBEDDING': f"I use {value} for embeddings.",
         }
-        
-        response = templates.get(key, value)
-        
-        if fact_type == 'vessel':
-            attribution = f"[bold magenta on black][FROM: memory.txt vessel {number}: {key}][/]"
-            return f"{response} {attribution}"
-        else:
-            return response
+        text = templates.get(key, value)
+        source = "memory.txt" if fact_data['type'] == 'vessel' else "system.txt"
+        return f"{text}\n   [{source} · {fact_data['type']} {fact_data['number']}]"

@@ -1,107 +1,79 @@
-# Winter Assistant - Modular AI Chat System
+# Winter Assistant - Maddi's AI
 
-Clean, modular architecture with swappable components and graceful fallbacks.
+A local AI that talks **as Maddi**, in first person.
+Questions about Maddi are answered with **Maddi's real words** (with citations).
+The AI never writes those answers. It only picks numbers.
 
-## 🏗️ Architecture
-```
-winter-assistant/
-├── core/          # AI engine, interfaces, config
-├── storage/       # LanceDB + JSONL fallback
-├── retrieval/     # RAG strategies (hybrid/simple)
-├── ui/            # Terminal interface
-├── adapters/      # Orchestration layer
-├── utils/         # Pure utility functions
-└── main.py        # Entry point
-```
+## How a message is answered
 
-## 🚀 Quick Start
+1. **Exact fact?** ("what's your name?") → answered from `memory/memory.txt`. No AI.
+2. **About Maddi?** ("do you like burritos?") → the **Evidence-Transport-Model**:
+   1. Search your messages twice: by meaning (LanceDB + Qwen3 embeddings) and by rare words (gradient search).
+   2. Merge both lists by rank, then rerank (meaning + keywords).
+   3. **Stasis gate**: if the results don't agree → "idk" in your voice.
+   4. **Clear winner?** → answer with no AI.
+   5. **Close call?** → the AI picks numbers (`[1,3]`), 3 times. Majority wins. If the votes split → "idk".
+   6. Rules decide yes / no / unclear. Newest message wins if you changed your mind.
+   7. Your exact words are pasted in, with citations like `[1] twitch · 2025-06-12`.
+3. **Anything else** (small talk, how-to, ideas) → the AI chats normally, as you.
+
+## Quick start
+
 ```bash
-# 1. Setup
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 
-# 2. Run
+ollama pull qwen3.5:4b
+
+# import your messages (only text, author, source and date are kept)
+python tools/import_chats.py path/to/chat_messages.csv --source twitch
+
 python main.py
 ```
 
-## 🎯 Features
+First run on a new PC (embedding model not downloaded yet):
+`WINTER_ALLOW_DOWNLOAD=1 python main.py`
 
-- ✅ **RAG-based memory** - Hybrid retrieval (recency + semantic)
-- ✅ **Vector storage** - LanceDB with embeddings
-- ✅ **Graceful fallbacks** - JSONL if LanceDB fails
-- ✅ **Modular design** - Swap any component
-- ✅ **Error boundaries** - No cascading failures
-- ✅ **Zero coupling** - Clean interfaces between modules
+## Test it
 
-## 🔧 Configuration
-
-Copy `.env.example` to `.env` and customize:
 ```bash
-WINTER_STORAGE=lancedb        # or jsonl
-WINTER_AI_MODEL=deepseek-r1:8b
-WINTER_RAG=hybrid             # or simple
+python tests/test_transport_offline.py        # no Ollama needed
+python tools/ask.py "do you like burritos?"   # shows the route + stasis scores
+python tools/ask.py --file questions.txt      # your 30-question test
 ```
 
-## 📝 Commands
+`tools/ask.py` prints how each answer was made (`fact`, `algo`, `ai_pick`, `idk_*`, `general`)
+and how many needed no AI at all.
 
-- `history` - Show recent conversation
-- `search <query>` - Semantic search
-- `quit` - Exit
+## Settings (`config.json`)
 
-## 🏛️ Design Principles
+| Key | What it does |
+|---|---|
+| `model_name` | Ollama model (`qwen3.5:4b`; try `qwen3.5:0.8b` or `qwen3:8b`) |
+| `transport_mode` | `algo` = no AI, `pick` = AI picks numbers, `write` = AI writes a short line too |
+| `votes` | Picker votes on close calls (3; set 1 for strong models) |
+| `stability_min`, `confidence_min` | Stasis gate. **Tune these with your 30-question test** |
+| `owner_handles` | Your usernames. Only their messages can be spoken as "I" |
+| `persona_name`, `agent_label` | Who the AI speaks as, and its honest label |
+| `debug` | `true` prints route, stability, confidence and votes after each answer |
 
-1. **Each module = one job** - Single responsibility
-2. **Interfaces over implementations** - Swappable components
-3. **Fail gracefully** - Error boundaries prevent cascades
-4. **Explicit over implicit** - No magic, clear flow
-5. **Zero cross-coupling** - Modules don't import each other
+## Folders
 
-## 📦 Module Responsibilities
-
-### `core/`
-- `interfaces.py` - Abstract contracts (Storage, RAG, AI)
-- `ai_engine.py` - AI inference (Ollama)
-- `config.py` - Configuration management
-- `errors.py` - Custom exceptions
-
-### `storage/`
-- `base.py` - Base storage class
-- `lancedb_storage.py` - Vector storage implementation
-- `fallback_storage.py` - Simple JSONL fallback
-
-### `retrieval/`
-- `hybrid_rag.py` - Recency + semantic search
-- `simple_rag.py` - Recency-only fallback
-
-### `ui/`
-- `terminal.py` - Terminal interface
-- `components.py` - Reusable UI elements
-
-### `adapters/`
-- `conversation_adapter.py` - Orchestrates core + storage + RAG
-
-### `utils/`
-- `file_ops.py` - File operations
-
-## 🧪 Testing Fallbacks
-
-**Disable LanceDB:**
-```bash
-# System gracefully falls back to JSONL storage
-python main.py
+```
+core/        config, embedder, Ollama client, general chat (persona)
+storage/     LanceDB conversations + evidence store (JSONL fallback)
+retrieval/   gradient search, stasis gate, evidence search, chat-memory RAG
+transport/   classify, packer, picker, verdict, checker, renderer, templates, engine
+adapters/    decides who answers each message
+tools/       import_chats.py, ask.py
+tests/       offline tests
 ```
 
-**Disable embeddings:**
-```bash
-# System gracefully falls back to simple RAG
-python main.py
-```
+Borrowed from Maddi's other repos:
+gradient search and the first transport model (maddis-rag);
+stasis scoring, the gate thresholds and the 60/40 rerank (maddis-probability-stasisv2).
 
-## 🗂️ Legacy Code
-
-Old JSONL + Redis sculpting system archived in `archive/legacy/`
-
-## 📄 License
+## License
 
 MIT

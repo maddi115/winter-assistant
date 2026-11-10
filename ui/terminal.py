@@ -9,8 +9,11 @@ from core.errors import UIError
 class TerminalUI:
     """Terminal-based user interface"""
 
-    def __init__(self, adapter: ConversationAdapter, conversation_title: str = ""):
+    def __init__(self, adapter: ConversationAdapter, conversation_title: str = "",
+                 label: str = "Maddi's AI", debug: bool = False):
         self.adapter = adapter
+        self.label = label
+        self.debug = debug
         self.conversation_title = conversation_title
         self.first_input_received = False
 
@@ -47,10 +50,12 @@ class TerminalUI:
                     continue
 
                 # Chat
-                print("\n🤖 ", end='', flush=True)
+                print(f"\n🤖 {self.label}: ", end='', flush=True)
                 for chunk in self.adapter.chat(user_input):
                     print(chunk, end='', flush=True)
                 print()
+                if self.debug and self.adapter.last_debug:
+                    print(f"   🔎 {self.adapter.last_debug}\n")
 
             except KeyboardInterrupt:
                 print("\n\n👋 Goodbye!\n")
@@ -61,8 +66,8 @@ class TerminalUI:
     def show_header(self):
         """Display header"""
         print("="*60)
-        title_display = self.conversation_title if self.conversation_title else "WINTER ASSISTANT"
-        print(f"🚀 WINTER ASSISTANT - {title_display}")
+        title_display = self.conversation_title if self.conversation_title else "new chat"
+        print(f"🚀 WINTER · {self.label} (an AI) - {title_display}")
         print("="*60)
         print("\nCommands: history | search <query> | quit\n")
 

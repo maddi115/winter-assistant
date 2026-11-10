@@ -1,62 +1,50 @@
-"""AI inference engine - LFM2.5 GPU swap"""
+"""General chat (small talk, ideas, how-to) - the only place the AI writes freely.
+
+Speaks AS the owner in first person, with real chat roles, streaming,
+memory.txt facts in the prompt and a few real messages as style samples.
+"""
 from typing import List, Dict, Any, Iterator
+
 from core.errors import AIError
 from core.llm_ollama import OllamaLLM
-from core.integrations.memory_injector import Vessels, Router, Formatter
+from core.integrations.memory_injector import Vessels
+
+
+def persona_prompt(config, facts_text: str, style: List[str]) -> str:
+    p, label = config.persona_name, config.agent_label
+    style_block = "\n".join(f"- {s}" for s in style) if style else "- (no samples yet)"
+    return (
+        f"You are {label}. You talk AS {p}, in first person (I/me/my), casually, like a real person texting.\n"
+        f"Keep replies short (1-3 sentences) unless asked for more.\n"
+        f"Facts about {p} you can use:\n{facts_text or '(none)'}\n"
+        f"How {p} types (copy the vibe, not the content):\n{style_block}\n"
+        f"Rules:\n"
+        f"- Never invent personal facts, memories, likes or opinions for {p}. "
+        f"If asked about something personal you don't know, say you've never really talked about it.\n"
+        f"- If someone asks whether you're an AI, say yes: you're {label}.\n"
+        f"- General knowledge and casual chat are fine."
+    )
+
 
 class OllamaAI:
-    """LFM2.5-based AI implementation compatible with Winter"""
-    def __init__(self, config):
-        self.model = OllamaLLM(config.model_name)
+    def __init__(self, config, style_samples=None):
+        self.config = config
+        self.model = OllamaLLM(config.model_name, num_ctx=config.num_ctx,
+                               think=config.think, temperature=config.temperature)
         self.vessels = Vessels()
-        self.router = Router(self.vessels)
-        self.formatter = Formatter()
-    
+        self.style = style_samples or []
+
     def generate(self, user_input: str, context: List[Dict[str, Any]]) -> Iterator[str]:
-        """Generate streaming response with context"""
+        """Stream a reply as text pieces (newlines kept)."""
         try:
-            history_str = ""
-            if context:
-                for turn in context[-15:]:
-                    history_str += f"\nUser: {turn['user']}\nAssistant: {turn['assistant']}\n"
-            
-            # Use Router for selective vessel injection
-            fact_key, fact_data = self.router.route(user_input)
-            
-            if fact_key and fact_data:
-                # Direct fact answer - bypass AI
-                answer = self.formatter.format_response(fact_key, fact_data)
-                yield answer
-                return
-            
-            # Check if user is asking about themselves
-            asking_about_self = any(word in user_input.lower() for word in [
-                "do i", "did i", "what do i", "what did i", "my favorite", "i like"
-            ])
-            
-            # Build prompt with emphasis on reading conversation history
-            if asking_about_self:
-                prompt = f"""You are agentWinter, an AI assistant helping Maddi.
-
-CRITICAL: Maddi is asking about THEMSELVES. Look in the conversation history below for what MADDI said, not what you think.
-
-When Maddi asks "what do I like?" or "what did I say?" - find where Maddi (marked as "User:") mentioned it in the conversation below.
-
-CONVERSATION HISTORY:{history_str}
-
-User: {user_input}
-Assistant:"""
-            else:
-                prompt = f"""You are agentWinter, a friendly AI assistant.
-
-Conversation:{history_str}
-
-User: {user_input}
-Assistant:"""
-            
-            output = self.model.generate(prompt)
-            for line in output.split("\n"):
-                yield line
-                
+            messages = [{"role": "system",
+                         "content": persona_prompt(self.config, self.vessels.get_all_text(), self.style)}]
+            for turn in context:
+                if turn.get('user'):
+                    messages.append({"role": "user", "content": turn['user']})
+                if turn.get('assistant'):
+                    messages.append({"role": "assistant", "content": turn['assistant']})
+            messages.append({"role": "user", "content": user_input})
+            yield from self.model.stream(messages, max_tokens=self.config.max_reply_tokens)
         except Exception as e:
             raise AIError(f"AI generation failed: {e}")
