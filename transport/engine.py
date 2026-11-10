@@ -96,7 +96,8 @@ class TransportModel:
         route, chosen = None, []
         if not clear and mode != "algo":
             # 6. AI picks numbers (multiple choice), consensus vote
-            print(f"(close call - asking the AI, {c.votes} votes) ", end="", flush=True)
+            if c.debug:
+                print(f"(close call - asking the AI, {c.votes} votes) ", end="", flush=True)
             max_words = c.write_max_words if mode == "write" else c.opener_max_words
             styles = None if mode == "write" else templates.OPENERS[("FOUND", tone)]
             msgs = build_messages(question, vessels, c.persona_name, c.agent_label,
@@ -104,7 +105,8 @@ class TransportModel:
             result = vote(self.llm, msgs, len(vessels), c.votes, styles)
             debug.update(votes=result["raw"], agreement=result["agreement"], vote_status=result["status"])
             if result["status"] == "error":
-                print("(AI didn't answer in time - using the algorithm) ", end="", flush=True)
+                if c.debug:
+                    print("(AI didn't answer in time - using the algorithm) ", end="", flush=True)
             elif result["status"] != "ok":
                 return self._idk(tone, "idk_votes", debug, bool(exclude))
             else:

@@ -30,5 +30,6 @@
   "llm_timeout": 90,
   "agree_skip": true,
   "idk_mode": "ai",
-  "style_words": "short, mostly lowercase, casual, chill, uses slang like lol, bro, tbh, ngl, fr"
+  "style_words": "short, mostly lowercase, casual, chill, uses slang like lol, bro, tbh, ngl, fr",
+  "stream_chat": false
 }

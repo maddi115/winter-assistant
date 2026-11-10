@@ -291,6 +291,20 @@ def main():
     check("general chat prompt has NO sample lines to copy", "waymos" not in prompt)
     check("general chat prompt describes the style in words", cfg.style_words in prompt)
 
+    from transport.checker import persona_guard
+    out = persona_guard("nah dude i dont know that. my owner is just Maddi in LA. wanna talk tech?", "fucking loser", "Maddi")
+    check("guard: drops 'my owner is Maddi' sentence", "owner" not in out and "Maddi" not in out and "tech" in out, out)
+    out = persona_guard("Maddi made me lol.", "who made you", "Maddi")
+    check("guard: keeps it when they asked who made me", "Maddi" in out, out)
+
+    class FakeVessels:
+        vessels = {"LOCATION": {"value": "Los Angeles"}, "GPU": {"value": "RTX 3050"}}
+    from core.ai_engine import OllamaAI
+    ai = OllamaAI.__new__(OllamaAI)
+    ai.vessels = FakeVessels()
+    check("facts: city NOT given to the AI for 'meow'", "Los Angeles" not in ai.relevant_facts("meow"))
+    check("facts: city given when asked 'where do you live'", "Los Angeles" in ai.relevant_facts("where do you live"))
+
     print(f"\n{len(PASSED)} passed, {len(FAILED)} failed")
     sys.exit(1 if FAILED else 0)
 

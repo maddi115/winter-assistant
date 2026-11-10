@@ -20,8 +20,11 @@ def persona_prompt(config, facts_text: str, style: List[str] = None) -> str:
         f"Keep replies short (1-3 sentences) unless asked for more. Stay on what the person just said.\n"
         f"Facts about {p} you can use:\n{facts_text or '(none)'}\n"
         f"Rules:\n"
+        f"- You ARE {p}. Never say 'my owner', never talk about {p} in third person, never use he/she/her/him for {p}.\n"
+        f"- Only mention the facts above if the person asks about them directly.\n"
         f"- Never invent personal facts, memories, likes or opinions for {p}. "
         f"If asked about something personal you don't know, say you've never really talked about it.\n"
+        f"- If someone is rude, stay chill and short, don't lecture.\n"
         f"- If someone asks whether you're an AI, say yes: you're {label}, {p}'s AI.\n"
         f"- General knowledge and casual chat are fine."
     )
@@ -56,11 +59,26 @@ class OllamaAI:
         messages = [{"role": "system", "content": system}, {"role": "user", "content": question}]
         return "".join(self.model.stream(messages, max_tokens=80)).strip()
 
+    FACT_TOPICS = {
+        'USER_NAME': r"\bname\b|\bwho\b",
+        'LOCATION': r"\bwhere\b|\blive\b|\bfrom\b|\bcity\b|\blocation\b|\bbased\b",
+        'GPU': r"\bgpu\b|\bgraphics\b|\bvram\b|\bpc\b|\bcomputer\b|\bspecs\b",
+        'PROJECT': r"\bproject\b|\bworking on\b|\bbuilding\b|\bmaking\b",
+    }
+
+    def relevant_facts(self, user_input: str) -> str:
+        """Only give the AI the facts the message is about (so it can't blurt out your city)."""
+        import re
+        low = user_input.lower()
+        lines = [f"{k} = {d['value']}" for k, d in self.vessels.vessels.items()
+                 if k in self.FACT_TOPICS and re.search(self.FACT_TOPICS[k], low)]
+        return "\n".join(lines)
+
     def generate(self, user_input: str, context: List[Dict[str, Any]]) -> Iterator[str]:
         """Stream a reply as text pieces (newlines kept)."""
         try:
             messages = [{"role": "system",
-                         "content": persona_prompt(self.config, self.vessels.get_all_text(), self.style)}]
+                         "content": persona_prompt(self.config, self.relevant_facts(user_input), self.style)}]
             for turn in context:
                 if turn.get('user'):
                     messages.append({"role": "user", "content": turn['user']})

@@ -45,6 +45,8 @@ class ConversationAdapter:
             res.debug["ai_fallback"] = f"error: {e}"
             return res
         res.debug["ai_fallback"] = reply
+        from transport.checker import persona_guard
+        reply = persona_guard(reply or "", user_input, self.config.persona_name)
         if not reply or invents_facts(reply) or len(reply.split()) > 45:
             return res                       # unsafe -> plain idk
         res.text, res.display, res.route = reply, "", "ai_no_evidence"
@@ -102,10 +104,17 @@ class ConversationAdapter:
 
         try:
             chunks = []
+            stream = getattr(self.config, "stream_chat", False)
             for chunk in self.ai.generate(user_input, context):
                 chunks.append(chunk)
-                yield chunk
+                if stream:
+                    yield chunk
             response = ''.join(chunks)
+            if not stream:
+                from transport.checker import persona_guard
+                persona = self.config.persona_name if self.config else "Maddi"
+                response = persona_guard(response, user_input, persona)
+                yield response
             self.last_route, self.last_debug = "general", {}
             self._save(user_input, response, start)
             yield f"\n\n⏱️  {time.time() - start:.2f}s · general\n"

@@ -48,6 +48,18 @@ def invents_facts(reply: str) -> bool:
     return polarity(reply) != 0
 
 
+def persona_guard(reply: str, user_input: str, persona: str) -> str:
+    """The agent speaks AS the owner. Drop sentences that talk ABOUT them
+    ('my owner is Maddi', 'chill with her') unless the person asked about that."""
+    asked = re.search(rf"\b(owner|creator|made you|{re.escape(persona.lower())})\b", user_input.lower())
+    if asked:
+        return reply.strip()
+    bad = re.compile(rf"\b(my|the|your) (owner|creator|maker)\b|\b{re.escape(persona)}\b", re.I)
+    parts = re.split(r"(?<=[.!?])\s+", reply.strip())
+    kept = [p for p in parts if not bad.search(p)]
+    return " ".join(kept).strip() or "lol what's up?"
+
+
 def clean_picks(picks: List[int], n: int) -> List[int]:
     out = []
     for p in picks:

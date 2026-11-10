@@ -47,6 +47,7 @@ class Config:
     opener_max_words: int = 10        # pick mode
     write_max_words: int = 25         # write mode
     debug: bool = False               # print route / stasis / votes after each answer
+    stream_chat: bool = False         # true = stream word by word, but skips the "talks about me" check
 
     @classmethod
     def load(cls, config_path: str = "config.json"):
