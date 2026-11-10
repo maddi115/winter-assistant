@@ -5,7 +5,7 @@ otherwise only sometimes, and never take over the chat.
   aimed at someone else  (@otherguy ..., replying to someone)               -> never
   1-on-1        only one person chatting lately                              -> always
   busy chat     several people talking                                       -> sometimes (chance + gap)
-  silence       chat went quiet after a real conversation                   -> once, then waits for people
+Starting a conversation on my own (silence, welcome back) lives in twitch/self_talk.py.
 """
 import random
 import re
@@ -38,14 +38,3 @@ def decide(m: Incoming, bot: str, c, room, rng=random.random):
     if rng() < chance:
         return text, "chimed in"
     return None, "letting them talk"
-
-
-def should_break_silence(room, c) -> bool:
-    """Chat had a real conversation, then went quiet. Say one thing, once."""
-    if c.twitch_idle_sec <= 0 or room.idle_spoken or not room.lines:
-        return False
-    if room.lines[-1].is_bot:                 # my message was the last one - don't double text
-        return False
-    if room.quiet_for() < c.twitch_idle_sec:
-        return False
-    return room.human_count_since(c.twitch_idle_sec + 900) >= 3

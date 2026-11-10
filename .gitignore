@@ -48,3 +48,5 @@ dump.rdb
 
 # Twitch bot login (never commit)
 twitch_token.json
+twitch_chatters.json
+twitch_chatters.json.tmp

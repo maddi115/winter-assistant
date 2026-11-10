@@ -82,6 +82,15 @@ class Config:
     twitch_idle_sec: int = 240        # chat quiet this long after a real convo -> say one thing (0 = never)
     twitch_max_words: int = 18        # AI lines get cut to this (don't talk too much)
     twitch_max_quotes: int = 1        # quotes from my messages per chat line
+    # talking on my own (twitch/self_talk.py) - kept rare on purpose
+    twitch_self_talk: bool = True     # false = only ever answers, never starts talking
+    twitch_self_max_per_hour: int = 3 # self-started messages per hour, per channel
+    twitch_self_gap: int = 600        # seconds between self-started messages
+    twitch_welcome_back_sec: int = 10800   # a regular gone this long (3h) may get a "welcome back"
+    twitch_welcome_chance: float = 0.5
+    # remembering chatters (twitch/chatters.py) - saved on your PC only, !forgetme wipes someone
+    twitch_remember_chatters: bool = True
+    twitch_chatters_file: str = "twitch_chatters.json"
     twitch_max_reply_tokens: int = 120
     twitch_ignore_users: List[str] = field(default_factory=lambda: [
         "nightbot", "streamelements", "streamlabs", "moobot", "fossabot", "wizebot", "soundalerts", "sery_bot"])

@@ -6,8 +6,10 @@
   python tools/twitch_bot.py --dry-run    # no Twitch: type chat lines yourself
                                           #   someuser: yo whats good
                                           #   /quiet   (pretend chat went silent)
+                                          #   /later   (pretend 3 hours passed - regulars come back)
 
-How it decides to talk: see twitch/talk.py.   How it talks: memory/personality.md
+When it answers: twitch/talk.py · when it starts talking on its own: twitch/self_talk.py
+Who it remembers: twitch/chatters.py · how it talks: memory/personality.md
 """
 import argparse
 import asyncio
@@ -21,7 +23,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from core.config import Config
 from twitch.rules import Incoming, parse_event, Cooldown
 from twitch.room import Room
-from twitch.talk import decide, should_break_silence
+from twitch.talk import decide
+from twitch.self_talk import SelfTalk
+from twitch.chatters import Chatters
 
 TWITCH_CONTEXT = ("You're a regular person hanging out in Twitch chat, NOT an assistant. "
                   "Type like a real chatter: lowercase, usually 2-12 words, no emojis, no exclamation marks, "
@@ -65,8 +69,10 @@ def log(s):
 
 
 def dry_run(config, brain, bot):
-    print(f"\n🧪 Dry run as @{bot}.  Type  user: message   ·  /quiet = chat goes silent  ·  Ctrl+D quits\n")
+    print(f"\n🧪 Dry run as @{bot}.  user: message  ·  /quiet = silence  ·  /later = 3h pass  ·  Ctrl+D quits\n")
     room = Room("dryrun")
+    people = Chatters(None)                 # dry run never writes your chatter file
+    me = SelfTalk(config, clock=room.clock)
     for raw in sys.stdin:
         raw = raw.strip()
         if not raw:
@@ -74,30 +80,53 @@ def dry_run(config, brain, bot):
         if raw == "/quiet":
             if room.lines:
                 room.lines[-1].ts -= config.twitch_idle_sec + 1
-            if should_break_silence(room, config):
-                said = brain.break_silence(room)
-                print(f"   → @{bot} (breaking the silence): {said or '(nothing worth saying)'}")
+            if me.silence(room):
                 room.idle_spoken = True
+                said = brain.self_line(room, "silence")
+                print(f"   💭 @{bot} (on my own): {said or '(nothing worth saying)'}")
                 if said:
+                    me.record(room)
                     room.add(bot, bot, said, is_bot=True)
             else:
-                print("   (not enough chat yet to start talking)")
+                print("   (stays quiet: not enough chat yet, or talked on my own recently)")
+            continue
+        if raw == "/later":
+            gone = config.twitch_welcome_back_sec + 1
+            for p_ in people.people.values():
+                p_["last_seen"] -= gone
+                p_["first_seen"] -= gone
+            for l in room.lines:
+                l.ts -= gone
+            room.last_chime -= gone
+            room.last_bot -= gone
+            me.sent.clear()
+            print("   (3 hours later...)")
             continue
         user, _, text = raw.partition(":") if ":" in raw else ("tester", "", raw)
         user = user.strip().lower()
         m = Incoming("dryrun", "0", user, user, text.strip())
         line = room.add(m.user, m.name, m.text)
         q, why = decide(m, bot, config, room)
+        away = people.seen(m.user, m.name, m.text, talked_to_me=q is not None)
+        note = people.note(m.user, away)
         if q is None:
-            print(f"   (stays quiet: {why})")
+            if me.welcome(room, m.user, away, already_answering=False):
+                said = brain.self_line(room, "welcome", m.name, note)
+                print(f"   💭 @{bot} (welcome back): {said or '(nothing worth saying)'}")
+                if said:
+                    me.record(room)
+                    room.add(bot, bot, said, is_bot=True)
+            else:
+                print(f"   (stays quiet: {why})")
             continue
         t0 = time.time()
-        reply, route = brain.reply(user, user, q, room, line)
+        reply, route = brain.reply(user, user, q, room, line, note)
         if reply:
             room.add(bot, bot, reply, is_bot=True)
             if why == "chimed in":
                 room.last_chime = room.clock()
         print(f"   → @{bot}: {reply or '(nothing worth saying)'}   [{why} · {route} · {time.time() - t0:.1f}s]")
+    print(f"\n🧠 remembered: " + "; ".join(people.note(u) for u in people.people))
 
 
 async def live(config, brain):
@@ -116,6 +145,9 @@ async def live(config, brain):
         raise SystemExit("❌ No channels to join. Set twitch_channels in config.json")
     rooms = {login: Room(login) for login in channels}
     ids = dict(channels)
+    people = Chatters(config.twitch_chatters_file if config.twitch_remember_chatters else None)
+    me = SelfTalk(config, clock=time.time)
+    log(f"🧠 remembering {len(people.people)} chatters")
     log(f"🤖 @{bot} ready · personality: {config.personality_file}")
 
     cd = Cooldown(config.twitch_user_cooldown, config.twitch_global_cooldown)
@@ -135,9 +167,23 @@ async def live(config, brain):
         room = rooms.get(m.channel)
         if room is None or m.user == bot:
             return                          # my own messages are added when I send them
+        if m.text.strip().lower() == "!forgetme":
+            people.forget(m.user)
+            room.lines = type(room.lines)((l for l in room.lines if l.user != m.user), maxlen=room.lines.maxlen)
+            log(f"🧽 forgot {m.user}")
+            await say(m.channel, f"done, forgot everything about u {m.name}")
+            return
         line = room.add(m.user, m.name, m.text)
         q, why = decide(m, bot, config, room)
+        away = people.seen(m.user, m.name, m.text, talked_to_me=q is not None) \
+            if config.twitch_remember_chatters else 0.0
+        note = people.note(m.user, away) if config.twitch_remember_chatters else None
         if q is None:
+            if me.welcome(room, m.user, away, already_answering=False):
+                try:
+                    queue.put_nowait(("welcome", m, None, line, "welcome back", note))
+                except asyncio.QueueFull:
+                    pass
             return
         if not cd.ready(m.user):
             log(f"⏳ {m.user} on cooldown: {q[:60]}")
@@ -146,16 +192,24 @@ async def live(config, brain):
         if why == "chimed in":
             room.last_chime = room.clock()
         try:
-            queue.put_nowait((m, q, line, why))
+            queue.put_nowait(("reply", m, q, line, why, note))
         except asyncio.QueueFull:
             log(f"🚦 busy, skipped {m.user}: {q[:60]}")
 
     async def worker():
         while True:
-            m, q, line, why = await queue.get()
+            kind, m, q, line, why, note = await queue.get()
             t0 = time.time()
+            room = rooms[m.channel]
+            if kind == "welcome":
+                said = await asyncio.to_thread(brain.self_line, room, "welcome", m.name, note)
+                if said and me.allowed(room):
+                    sent, err = await say(m.channel, said)
+                    me.record(room)
+                    log(f"{'💭' if sent else '⚠️ '} welcome back {m.user} -> {said}")
+                continue
             try:
-                reply, route = await asyncio.to_thread(brain.reply, m.user, m.name, q, rooms[m.channel], line)
+                reply, route = await asyncio.to_thread(brain.reply, m.user, m.name, q, room, line, note)
             except Exception as e:
                 log(f"❌ answer failed for {m.user}: {e}")
                 continue
@@ -166,23 +220,26 @@ async def live(config, brain):
             mark = "💬" if sent else f"⚠️  not sent ({err})"
             log(f"{mark} {m.user}: {q[:60]}\n          -> {reply}   [{why} · {route} · {time.time() - t0:.1f}s]")
 
-    async def silence_watch():
+    async def self_watch():
         while True:
             await asyncio.sleep(15)
+            people.save()                   # remember chatters even if the PC crashes
             for ch, room in rooms.items():
-                if should_break_silence(room, config) and queue.empty():
+                if me.silence(room) and queue.empty():
                     room.idle_spoken = True
-                    said = await asyncio.to_thread(brain.break_silence, room)
+                    said = await asyncio.to_thread(brain.self_line, room, "silence")
                     if said:
                         sent, err = await say(ch, said)
-                        log(f"{'💭' if sent else '⚠️ '} #{ch} breaking the silence -> {said}")
+                        me.record(room)
+                        log(f"{'💭' if sent else '⚠️ '} #{ch} on my own -> {said}")
 
-    tasks = [asyncio.create_task(worker()), asyncio.create_task(silence_watch())]
+    tasks = [asyncio.create_task(worker()), asyncio.create_task(self_watch())]
     try:
         await listen(helix, bot_id, channels, on_event, log)
     finally:
         for t in tasks:
             t.cancel()
+        people.save()
 
 
 def main():

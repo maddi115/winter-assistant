@@ -101,7 +101,14 @@ chat message ─▶ room history (everyone's last messages)
                    the AI sees the room + memory/personality.md
               ─▶ cleanup: 1 quote, short, lowercase, no "!", no "never say" lines, no links
               ─▶ send
-chat goes quiet after a real convo ─▶ one line about what people said (once)
+
+on my own (twitch/self_talk.py) - max 3 an hour, 10 min apart, never double texting:
+   chat goes quiet after a real convo ─▶ one line about what people said
+   a regular comes back after 3h+     ─▶ sometimes a quick "yo welcome back"
+
+chatters (twitch/chatters.py) - saved in twitch_chatters.json on your PC only:
+   first/last seen, how often they chat, what they talk about, last 5 lines
+   the AI knows it quietly ("don't recite it"); anyone can type !forgetme
 ```
 
 `memory/personality.md` is how I talk. Edit it any time - it reloads by itself.

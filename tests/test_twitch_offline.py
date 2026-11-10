@@ -171,7 +171,8 @@ check("AI chat lines ARE humanized", bg.reply("v", "V", "Hi")[0] == "reply to hi
 
 print("\nI. Reads the room, knows when to talk")
 from twitch.room import Room
-from twitch.talk import decide, should_break_silence
+from twitch.talk import decide
+from twitch.self_talk import SelfTalk
 clock = [1000.0]
 room = Room("chan", clock=lambda: clock[0])
 c3 = Config()
@@ -200,21 +201,68 @@ check("...but not twice in a row", decide(m, "agentwinterrr", c3, room, rng=lamb
 check("quiet mode (reply_all off) ignores plain chat",
       decide(msg("yo", user="zed"), "agentwinterrr", Config(twitch_reply_all=False), Room("x"))[0] is None)
 
-print("\nJ. Breaks a silence once, never double texts")
+print("\nJ. Talks on its own - rarely")
 r2 = Room("chan", clock=lambda: clock[0])
+st = SelfTalk(c3, clock=lambda: clock[0])
 for u, t in [("viewer1", "who plays l4d2"), ("bob", "me"), ("viewer1", "bet")]:
     r2.add(u, u, t)
-check("not yet - chat just happened", not should_break_silence(r2, c3))
+check("not yet - chat just happened", not st.silence(r2))
 clock[0] += c3.twitch_idle_sec + 1
-check("quiet after a real convo -> speak", should_break_silence(r2, c3))
-r2.idle_spoken = True
-check("only once per silence", not should_break_silence(r2, c3))
-r2.add("bob", "bob", "back"); clock[0] += c3.twitch_idle_sec + 1
-check("a human talked again -> allowed again", should_break_silence(r2, c3))
+check("quiet after a real convo -> speak", st.silence(r2))
+r2.idle_spoken = True; st.record(r2)
+check("only once per silence", not st.silence(r2))
+r2.add("bob", "bob", "back"); r2.add("cara", "cara", "yo"); r2.add("bob", "bob", "ok"); clock[0] += c3.twitch_idle_sec + 1
+check("not again within the gap (10 min)", not st.silence(r2))
+clock[0] += c3.twitch_self_gap
+r2.add("bob", "bob", "anyone"); clock[0] += c3.twitch_idle_sec + 1
+check("after the gap + people talked again -> allowed", st.silence(r2))
 r2.add("agentwinterrr", "agentwinterrr", "lol", is_bot=True); clock[0] += c3.twitch_idle_sec + 1
-check("never double texts (my msg was last)", not should_break_silence(r2, c3))
+check("never double texts (my msg was last)", not st.silence(r2))
 r3 = Room("c", clock=lambda: clock[0]); r3.add("a", "a", "hi"); clock[0] += 9999
-check("one lonely message isn't a convo", not should_break_silence(r3, c3))
+check("one lonely message isn't a convo", not st.silence(r3))
+r4 = Room("c4", clock=lambda: clock[0]); st4 = SelfTalk(c3, clock=lambda: clock[0])
+for _ in range(c3.twitch_self_max_per_hour):
+    st4.record(r4); clock[0] += c3.twitch_self_gap + 1
+r4.add("a", "a", "x")
+check(f"max {c3.twitch_self_max_per_hour} self-started messages per hour", not st4.allowed(r4))
+c3.twitch_self_talk = False
+check("twitch_self_talk=false -> never starts talking", not SelfTalk(c3, clock=lambda: clock[0]).allowed(r3))
+c3.twitch_self_talk = True
+r5 = Room("c5", clock=lambda: clock[0]); st5 = SelfTalk(c3, clock=lambda: clock[0], rng=lambda: 0.0)
+r5.add("viewer1", "viewer1", "yo")
+check("welcome back: regular gone 3h+", st5.welcome(r5, "viewer1", 4 * 3600, already_answering=False))
+check("...only once per session", not st5.welcome(r5, "viewer1", 4 * 3600, already_answering=False))
+check("no welcome if I'm already answering them", not st5.welcome(r5, "bob", 4 * 3600, already_answering=True))
+check("no welcome for someone who was just here", not st5.welcome(r5, "cara", 600, already_answering=False))
+for k in range(8):
+    r5.add(f"u{k}", "u", "spam")
+check("no welcome while chat is flying", not st5.welcome(r5, "dan", 4 * 3600, already_answering=False))
+
+print("\nL. Remembers chatters")
+from twitch.chatters import Chatters
+t = [5000.0]
+mem_path = Path(tempfile.mkdtemp()) / "chatters.json"
+ch = Chatters(mem_path, clock=lambda: t[0])
+check("new chatter -> away 0", ch.seen("Viewer1", "Viewer1", "anyone play l4d2 tonight") == 0)
+check("new chatter note", ch.note("viewer1") == "Viewer1 is new in chat.", ch.note("viewer1"))
+t[0] += 60; ch.seen("viewer1", "Viewer1", "l4d2 is the best fr", talked_to_me=True)
+t[0] += 5 * 3600
+away = ch.seen("viewer1", "Viewer1", "yo im back")
+check("knows how long they were gone", abs(away - 5 * 3600) < 1, away)
+n = ch.note("viewer1", away)
+check("note: count, came back, topics", "3 times" in n and "came back after 5 hours" in n and "l4d2" in n, n)
+check("slang isn't a topic", "lol" not in ch.get("viewer1")["topics"] and "yo" not in ch.get("viewer1")["topics"])
+check("counts talks with me", ch.get("viewer1")["talks"] == 1)
+for k in range(10):
+    ch.seen("viewer1", "Viewer1", f"line {k}")
+check("keeps only their last 5 lines", len(ch.get("viewer1")["lines"]) == 5)
+ch.save()
+ch2 = Chatters(mem_path, clock=lambda: t[0])
+check("survives a restart (saved to disk)", ch2.get("viewer1")["messages"] == ch.get("viewer1")["messages"])
+ch2.forget("Viewer1"); ch2.save()
+check("!forgetme wipes them", Chatters(mem_path).get("viewer1") is None)
+check("dry run memory never touches disk", Chatters(None).save() is None)
+check("memory file is git-ignored", "twitch_chatters.json" in (Path(__file__).resolve().parent.parent / ".gitignore").read_text())
 
 print("\nK. The AI sees the room + personality")
 
@@ -250,6 +298,10 @@ check("reply is short + human", out == "hey l4d2 is honestly so fun, i could pla
 SEE.out = "As an AI, I can't play games. But it looks fun."
 out, _ = b4.reply("viewer1", "Viewer1", "hm", rr)
 check("'never say' sentence dropped", out == "but it looks fun", out)
+out, _ = b4.reply("viewer1", "Viewer1", "yo", rr, None, note="Viewer1 has chatted 40 times; they usually talk about: l4d2.")
+check("prompt has what I remember about them", "they usually talk about: l4d2" in SEE.prompts[-1])
+SEE.out = "yo viewer1 welcome back"
+check("welcome back line", b4.self_line(rr, "welcome", "Viewer1", "back after 5 hours") == "yo viewer1 welcome back")
 SEE.out = "skip"
 check("break_silence: 'skip' -> says nothing", b4.break_silence(rr) is None)
 SEE.out = "lowkey who's hopping on l4d2 tonight"
