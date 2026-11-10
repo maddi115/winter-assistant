@@ -305,6 +305,14 @@ def main():
     check("facts: city NOT given to the AI for 'meow'", "Los Angeles" not in ai.relevant_facts("meow"))
     check("facts: city given when asked 'where do you live'", "Los Angeles" in ai.relevant_facts("where do you live"))
 
+    from ui.terminal import keys_paused
+    try:
+        with keys_paused():
+            pass
+        check("keys_paused works (and is safe outside a terminal)", True)
+    except Exception as e:
+        check("keys_paused works (and is safe outside a terminal)", False, e)
+
     print(f"\n{len(PASSED)} passed, {len(FAILED)} failed")
     sys.exit(1 if FAILED else 0)
 

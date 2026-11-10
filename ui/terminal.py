@@ -1,6 +1,29 @@
 """Terminal UI implementation"""
 import sys
+from contextlib import contextmanager
 from typing import Optional
+
+
+@contextmanager
+def keys_paused():
+    """While agentWinter answers: hide what you type, then throw it away.
+    Otherwise early keystrokes get mixed into the answer AND stuck to the
+    front of your next message ("wh" + "where do you live?")."""
+    try:
+        import termios
+        fd = sys.stdin.fileno()
+        old = termios.tcgetattr(fd)
+    except Exception:            # not a real terminal (pipe, file): nothing to do
+        yield
+        return
+    new = termios.tcgetattr(fd)
+    new[3] &= ~termios.ECHO      # turn off echo
+    try:
+        termios.tcsetattr(fd, termios.TCSADRAIN, new)
+        yield
+    finally:
+        termios.tcflush(fd, termios.TCIFLUSH)        # drop keys typed meanwhile
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
 from ui.components import get_key, menu, clear_screen
 from adapters.conversation_adapter import ConversationAdapter
@@ -52,8 +75,9 @@ class TerminalUI:
 
                 # Chat
                 print(f"\n🤖 {self.label}: ", end='', flush=True)
-                for chunk in self.adapter.chat(user_input):
-                    print(chunk, end='', flush=True)
+                with keys_paused():
+                    for chunk in self.adapter.chat(user_input):
+                        print(chunk, end='', flush=True)
                 print()
                 if self.debug and self.adapter.last_debug:
                     print(f"   🔎 {self.adapter.last_debug}\n")
