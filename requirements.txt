@@ -7,3 +7,6 @@ pandas==2.3.3
 numpy>=1.26
 ollama>=0.5.0
 rich>=13
+
+# Twitch bot
+websockets>=13

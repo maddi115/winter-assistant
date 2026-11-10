@@ -58,6 +58,23 @@ class Config:
     thread_max: int = 2               # ...at most this many on each side
     debug: bool = False               # print route / stasis / votes after each answer
     stream_chat: bool = False         # true = stream word by word, but skips the "talks about me" check
+    chat_context: str = ""            # extra line for the chat AI (the Twitch bot sets this)
+
+    # Twitch bot (python tools/twitch_bot.py)
+    twitch_client_id: str = ""        # from dev.twitch.tv/console (Public client). Not a secret.
+    twitch_channels: List[str] = field(default_factory=list)   # channels to chat in, e.g. ["yourchannel"]
+    twitch_prefix: str = "!winter"    # "!winter do you like burritos?" (also answers @mentions + replies)
+    twitch_user_cooldown: int = 20    # seconds before the same chatter gets another answer
+    twitch_global_cooldown: int = 3   # seconds between any two bot messages
+    twitch_max_queue: int = 5         # questions waiting; more than this get skipped
+    twitch_max_chars: int = 450       # Twitch limit is 500
+    twitch_citations: bool = False    # true = keep [1][2] in chat
+    twitch_chat_memory: int = 4       # turns remembered per chatter
+    twitch_max_reply_tokens: int = 120
+    twitch_ignore_users: List[str] = field(default_factory=lambda: [
+        "nightbot", "streamelements", "streamlabs", "moobot", "fossabot", "wizebot", "soundalerts", "sery_bot"])
+    twitch_block_words: List[str] = field(default_factory=lambda: ["kys", "kill yourself"])  # never sent
+    twitch_token_file: str = "twitch_token.json"
 
     @classmethod
     def load(cls, config_path: str = "config.json"):

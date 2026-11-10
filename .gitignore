@@ -45,3 +45,6 @@ dump.rdb
 *.tmp
 *~
 .~*
+
+# Twitch bot login (never commit)
+twitch_token.json
