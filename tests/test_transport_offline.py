@@ -213,6 +213,9 @@ def main():
     check("yes/no + top results agree -> no AI needed", res.route == "algo", res.route)
     res = tm.answer("what games do you play?")
     check("open question -> agreement shortcut NOT used, AI decides", res.route == "ai_pick", res.route)
+    _, _, tm = build(tmp, ballots=[json.dumps({"pick": [1], "style": 1})] * 3)
+    res = tm.answer("what do you eat?")
+    check("open question with a big lead -> still AI decides", res.route in ("ai_pick", "idk_gate", "idk_votes"), res.route)
 
     print("\nE. No repeats on follow-ups (adapter)")
 
@@ -257,6 +260,10 @@ def main():
     check("checker: 'my favorite is X' counts as inventing", invents_facts("tbh my favorite is ramen"))
     check("checker: 'never talked about it, what about you?' is safe",
           not invents_facts("never really talked about it, what about you?"))
+    check("checker: 'i might have visited Japan' counts as inventing",
+          invents_facts("never really talked about it but yeah i might have visited Japan at some point"))
+    check("checker: parroted style sample (no admission) is thrown out",
+          invents_facts("Actually nvm dont stay with me. I havent seen into waymos business model."))
     ad.ai = NoAI()
     a3 = "".join(ad.chat("how do i store rice?"))
     check("not about me -> general chat", a3.startswith("general"), a3)

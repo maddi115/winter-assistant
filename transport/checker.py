@@ -31,13 +31,18 @@ def parse_reply(raw: str):
 CLAIMS = [r"\bi (really |kinda |lowkey |honestly |actually )?(prefer|adore|enjoy|like|love|hate|dislike)\b",
           r"\bmy (fav|favorite|favourite)\b", r"\bi'?m (really |so |kinda )?(into|obsessed|a fan)\b",
           r"\bi (used to|always|usually|grew up|remember|once)\b", r"\bi (went|ate|played|watched|had|was)\b",
+          r"\bi (might|may|probably|must|could)( have| of)?\b", r"\bi'?ve (been|gone|seen|tried|done|visited|had)\b",
+          r"\bi (have|had) (been|gone|seen|tried|done|visited)\b", r"\byeah,? i\b", r"\bi (did|do)\b",
           r"\byou said\b", r"\bas an ai\b"]
+ADMITS = r"(never (really )?(talked|said|mentioned|brought|spoke)|\bidk\b|don'?t (really )?know|no idea|not sure|haven'?t (really )?(talked|said|mentioned))"
 
 
 def invents_facts(reply: str) -> bool:
     """True if a no-evidence reply claims a like/dislike/memory/fact about me."""
     from transport.verdict import polarity
     low = reply.lower().replace("’", "'")
+    if not re.search(ADMITS, low):          # must admit it doesn't know
+        return True
     if any(re.search(p, low) for p in CLAIMS):
         return True
     return polarity(reply) != 0

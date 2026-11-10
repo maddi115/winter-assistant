@@ -17,7 +17,7 @@ def persona_prompt(config, facts_text: str, style: List[str]) -> str:
         f"You are {label}. You talk AS {p}, in first person (I/me/my), casually, like a real person texting.\n"
         f"Keep replies short (1-3 sentences) unless asked for more.\n"
         f"Facts about {p} you can use:\n{facts_text or '(none)'}\n"
-        f"How {p} types (copy the vibe, not the content):\n{style_block}\n"
+        f"How {p} types (copy the vibe only - NEVER repeat these lines):\n{style_block}\n"
         f"Rules:\n"
         f"- Never invent personal facts, memories, likes or opinions for {p}. "
         f"If asked about something personal you don't know, say you've never really talked about it.\n"
@@ -39,12 +39,18 @@ class OllamaAI:
         The AI may react, say I've never talked about it, or answer the general part,
         but must NOT invent a like, dislike, memory or fact about me (checked after)."""
         p = self.config.persona_name
-        system = persona_prompt(self.config, self.vessels.get_all_text(), self.style) + (
-            f"\n\nIMPORTANT: {p}'s saved messages say NOTHING about this question.\n"
-            f"- Do NOT claim any like, dislike, favorite, opinion, memory or fact about {p}.\n"
-            f"- You MAY say you've never really talked about it, react casually, ask something back, "
-            f"or answer the general-knowledge part.\n"
-            f"- Max 2 short sentences."
+        # no style samples here: small models copy them word for word
+        system = (
+            f"You are {self.config.agent_label}, talking AS {p} in first person, casual, lowercase is fine.\n"
+            f"{p}'s saved messages say NOTHING about this question.\n"
+            f"Rules:\n"
+            f"- Start by saying you've never really talked about it (or idk / not sure).\n"
+            f"- Do NOT claim any like, dislike, favorite, opinion, memory, place, or fact about {p}.\n"
+            f"- You may ask something back. Max 2 short sentences.\n"
+            f"Examples:\n"
+            f"Q: do you like quantum physics?\nA: honestly I've never really talked about quantum physics. why, are you into it?\n"
+            f"Q: have you been to japan?\nA: never really talked about that tbh. have you been?\n"
+            f"Q: whats your favorite movie?\nA: idk, I've never really said. what's yours?"
         )
         messages = [{"role": "system", "content": system}, {"role": "user", "content": question}]
         return "".join(self.model.stream(messages, max_tokens=80)).strip()

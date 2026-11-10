@@ -81,6 +81,10 @@ class TransportModel:
         agree = (c.agree_skip and qtype == "yes_no" and len(top) >= 2 and top[0]["has_anchor"]
                  and sum(x["has_anchor"] for x in top[:3]) >= 2)
         clear = top[0]["has_anchor"] and (len(top) == 1 or margin >= c.winner_margin or agree)
+        # open questions ("what's your favorite food?"): sharing a word isn't an answer,
+        # so the algorithm only answers alone for yes/no questions
+        if qtype != "yes_no" and self.llm is not None and c.transport_mode != "algo":
+            clear = False
         debug.update(margin=round(margin, 3), agree=agree)
         ai_openers = []
         mode = c.transport_mode if self.llm is not None else "algo"
