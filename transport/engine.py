@@ -77,27 +77,33 @@ class TransportModel:
         ai_openers = []
         mode = c.transport_mode if self.llm is not None else "algo"
 
-        if clear or mode == "algo":
-            # statements before questions ("do asian people eat hot cheetos?" isn't about me)
-            anchored = sorted([v for v in vessels if v["has_anchor"]], key=lambda v: v["is_question"])
-            if not anchored:
-                return self._idk(tone, "idk_gate", debug, bool(exclude))
-            chosen = anchored[:1]
-            if not clear:   # algo mode, close call: add the runner-up if it also has the key word
-                chosen += [v for v in anchored[1:2] if v["combo"] >= anchored[0]["combo"] - c.winner_margin]
-            route = "algo"
-        else:
+        route, chosen = None, []
+        if not clear and mode != "algo":
             # 6. AI picks numbers (multiple choice), consensus vote
+            print(f"(close call - asking the AI, {c.votes} votes) ", end="", flush=True)
             max_words = c.write_max_words if mode == "write" else c.opener_max_words
             msgs = build_messages(question, vessels, c.persona_name, c.agent_label,
                                   self.style, max_words, mode == "write")
             result = vote(self.llm, msgs, len(vessels), c.votes)
             debug.update(votes=result["raw"], agreement=result["agreement"], vote_status=result["status"])
-            if result["status"] != "ok":
+            if result["status"] == "error":
+                print("(AI didn't answer in time - using the algorithm) ", end="", flush=True)
+            elif result["status"] != "ok":
                 return self._idk(tone, "idk_votes", debug, bool(exclude))
-            chosen = [vessels[p - 1] for p in result["picks"]]
-            ai_openers = result["openers"]
-            route = "ai_pick"
+            else:
+                chosen = [vessels[p - 1] for p in result["picks"]]
+                ai_openers = result["openers"]
+                route = "ai_pick"
+
+        if route is None:
+            # statements before questions ("do asian people eat hot cheetos?" isn't about me)
+            anchored = sorted([v for v in vessels if v["has_anchor"]], key=lambda v: v["is_question"])
+            if not anchored:
+                return self._idk(tone, "idk_gate", debug, bool(exclude))
+            chosen = anchored[:1]
+            if not clear:   # close call without the AI: add the runner-up if it also has the key word
+                chosen += [v for v in anchored[1:2] if v["combo"] >= anchored[0]["combo"] - c.winner_margin]
+            route = "algo" if debug.get("vote_status") != "error" else "algo_fallback"
 
         # 7. verdict (rules) -> opener -> render
         changed = False

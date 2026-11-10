@@ -29,8 +29,8 @@ def persona_prompt(config, facts_text: str, style: List[str]) -> str:
 class OllamaAI:
     def __init__(self, config, style_samples=None):
         self.config = config
-        self.model = OllamaLLM(config.model_name, num_ctx=config.num_ctx,
-                               think=config.think, temperature=config.temperature)
+        self.model = OllamaLLM(config.model_name, num_ctx=config.num_ctx, think=config.think,
+                               temperature=config.temperature, timeout=config.llm_timeout)
         self.vessels = Vessels()
         self.style = style_samples or []
 

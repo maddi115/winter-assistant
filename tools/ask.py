@@ -68,7 +68,7 @@ def main():
         print(f"   route={adapter.last_route}  stability={d.get('stability', '-')}  "
               f"confidence={d.get('confidence', '-')}  agreement={d.get('agreement', '-')}")
 
-    no_ai = routes["fact"] + routes["algo"] + routes["idk_gate"] + routes["idk_empty"]
+    no_ai = routes["fact"] + routes["algo"] + routes["algo_fallback"] + routes["idk_gate"] + routes["idk_empty"]
     print("\n" + "=" * 60)
     print(f"Routes: {dict(routes)}")
     print(f"Answered with NO AI at all: {no_ai}/{len(qs)} ({100 * no_ai // len(qs)}%)")

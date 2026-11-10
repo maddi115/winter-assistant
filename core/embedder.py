@@ -21,7 +21,14 @@ class Embedder:
     def __init__(self, model_name: str):
         from sentence_transformers import SentenceTransformer
         offline = os.environ.get("WINTER_ALLOW_DOWNLOAD") != "1"
-        self.model = SentenceTransformer(model_name, local_files_only=offline)
+        kw = {}
+        try:
+            import torch
+            if torch.cuda.is_available():
+                kw["model_kwargs"] = {"torch_dtype": torch.float16}   # half the VRAM
+        except Exception:
+            pass
+        self.model = SentenceTransformer(model_name, local_files_only=offline, **kw)
         self.dim = self.model.get_sentence_embedding_dimension()
 
     @staticmethod

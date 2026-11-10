@@ -17,7 +17,8 @@ class Config:
     # LLM (Ollama)
     model_name: str = "qwen3.5:4b"
     temperature: float = 0.7
-    num_ctx: int = 8192
+    num_ctx: int = 4096
+    llm_timeout: int = 90             # seconds before giving up on Ollama
     think: bool = False
     max_reply_tokens: int = 512
 

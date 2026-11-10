@@ -3,29 +3,29 @@
   "storage_path": "storage",
   "conv_history_path": "conversations_fallback",
   "embedding_model": "Qwen/Qwen3-Embedding-0.6B",
-
   "model_name": "qwen3.5:4b",
   "temperature": 0.7,
-  "num_ctx": 8192,
+  "num_ctx": 4096,
   "think": false,
   "max_reply_tokens": 512,
-
   "rag_recent_limit": 6,
   "rag_semantic_limit": 4,
-
   "persona_name": "Maddi",
   "agent_label": "Maddi's AI",
-  "owner_handles": ["agentmaddi", "madddyyyyi"],
+  "owner_handles": [
+    "agentmaddi",
+    "madddyyyyi"
+  ],
   "style_samples": 5,
-
   "transport_mode": "pick",
   "votes": 3,
   "evidence_k": 20,
   "vessels_k": 5,
-  "stability_min": 0.60,
+  "stability_min": 0.6,
   "confidence_min": 0.45,
-  "winner_margin": 0.10,
+  "winner_margin": 0.1,
   "opener_max_words": 10,
   "write_max_words": 25,
-  "debug": false
+  "debug": false,
+  "llm_timeout": 90
 }

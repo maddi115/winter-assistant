@@ -188,6 +188,15 @@ def main():
     check("bad number [9] dropped, bad opener replaced by template",
           res.route == "ai_pick" and "1999" not in res.text and "[2]" not in res.text, res.text)
 
+    class DeadLLM:
+        def chat_json(self, *a, **k):
+            raise TimeoutError("timed out")
+    config, store, tm = build(tmp, winner_margin=0.9)
+    tm.llm = DeadLLM()
+    res = tm.answer(q)
+    check("AI timeout -> algorithm answers instead of hanging", res.route == "algo_fallback"
+          and "video games" in res.text, (res.route, res.text))
+
     print("\nE. No repeats on follow-ups (adapter)")
 
     class MemStorage:

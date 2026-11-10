@@ -39,7 +39,7 @@ def build_messages(question, vessels, persona, agent_label, style, max_words, wr
 
 
 def vote(llm, messages, n_vessels: int, votes: int) -> Dict:
-    """Returns {'status': ok|none|split, 'picks': [...], 'openers': [...], 'agreement': 0..1, 'raw': [...]}."""
+    """Returns {'status': ok|none|split|error, 'picks': [...], 'openers': [...], 'agreement': 0..1, 'raw': [...]}."""
     votes = max(1, int(votes))
     temperature = 0.0 if votes == 1 else 0.7
     ballots, openers, raw = [], [], []
@@ -47,7 +47,9 @@ def vote(llm, messages, n_vessels: int, votes: int) -> Dict:
         try:
             reply = llm.chat_json(messages, SCHEMA, max_tokens=80, temperature=temperature)
         except Exception as e:
-            reply = f"error: {e}"
+            # timeout / Ollama down: don't wait through every vote
+            return {"status": "error", "picks": [], "openers": [], "agreement": 0.0,
+                    "raw": raw + [f"error: {e}"]}
         raw.append(reply)
         picks, opener = parse_reply(reply)
         picks = clean_picks(picks, n_vessels)
