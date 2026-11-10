@@ -26,8 +26,19 @@ def normalize(text: str) -> str:
 class Router:
     """Routes exact questions to stored facts; everything else returns (None, None)."""
 
+    # Asked by the owner about themselves ("my ...") -> answered as "your ..."
+    MY_PATTERNS = {
+        'USER_NAME': [rf"^{WHATS} my name( again)?$", r"^who am i$", rf"^do {YOU} know my name$"],
+        'PROJECT': [r"^what am i (working on|building)( right now| rn)?$", rf"^{WHATS} my project$"],
+        'GPU': [r"^(what|which) (gpu|graphics card) do i have$", rf"^{WHATS} my (gpu|graphics card)$",
+                r"^how much vram do i have$"],
+        'LOCATION': [r"^where am i$", rf"^{WHATS} my location$", r"^what city am i in$",
+                     r"^where do i live$"],
+    }
+
+    # Asked about the agent ("your ...") -> answered in first person
     PATTERNS = {
-        'USER_NAME': [rf"^{WHATS} {YOUR} name( again)?$", rf"^who (are|r) {YOU}$"],
+        'AI_NAME': [rf"^{WHATS} {YOUR} name( again)?$", rf"^who (are|r) {YOU}$"],
         'LOCATION': [rf"^where (are|r) {YOU}( from| based| located| at)?$",
                      rf"^where do {YOU} live$"],
         'PROJECT': [rf"^what (are|r) {YOU} (working on|building)( right now| rn)?$",
@@ -52,6 +63,9 @@ class Router:
 
     def route(self, user_input: str) -> Tuple[Optional[str], Optional[Dict]]:
         q = normalize(user_input)
+        for key, patterns in self.MY_PATTERNS.items():
+            if any(re.match(p, q) for p in patterns) and key in self.vessels:
+                return key, dict(self.vessels[key], perspective="owner")
         for key, patterns in self.PATTERNS.items():
             if any(re.match(p, q) for p in patterns):
                 fact_key = self.FACT_FOR.get(key, key)

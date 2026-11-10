@@ -1,6 +1,7 @@
-# Winter Assistant - Maddi's AI
+# Winter Assistant - agentWinter
 
-A local AI that talks **as Maddi**, in first person.
+**agentWinter** is Maddi's local AI. It talks **as Maddi**, in first person.
+On screen: **neon pink** = pulled from a memory vessel, **neon green** = Maddi's own words from chat data.
 Questions about Maddi are answered with **Maddi's real words** (with citations).
 The AI never writes those answers. It only picks numbers.
 

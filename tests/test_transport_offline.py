@@ -121,13 +121,24 @@ def main():
     check("'what model of car should i buy?' is NOT hijacked", r.route("what model of car should i buy?") == (None, None))
     check("'what city has the best tacos?' is NOT hijacked", r.route("what city has the best tacos?") == (None, None))
     k, d = r.route("What's your name?")
-    check("'What's your name?' -> I'm Maddi (first person)", k and f.format_response(k, d).startswith("I'm Maddi"),
+    check("'What's your name?' -> I'm agentWinter", k and f.format_response(k, d).startswith("I'm agentWinter"),
           f.format_response(k, d) if k else None)
+    for q, want in [("whats my name", "Your name is Maddi"), ("who am i?", "Your name is Maddi"),
+                    ("what gpu do i have?", "You have an NVIDIA"), ("where am i", "You're in Los Angeles"),
+                    ("where are you from?", "I'm in Los Angeles")]:
+        k, d = r.route(q)
+        out = f.format_response(k, d) if k else None
+        check(f"vessel: '{q}' -> '{want}...'", bool(out) and out.startswith(want), out)
+    from core import colors
+    colors.ENABLED = True
+    k, d = r.route("whats my name")
+    check("vessel value is highlighted neon pink", colors.PINK + "Maddi" in f.format_display(k, d))
+    colors.ENABLED = False
     for q in ["hi whos ur owner?", "who made you", "whose ur owner", "who's your creator?"]:
         k, d = r.route(q)
         check(f"'{q}' -> 'Maddi made me'", k == "AI_OWNER" and "Maddi made me" in f.format_response(k, d), k)
     k, d = r.route("are you an ai?")
-    check("'are you an ai?' -> honest AI label", k and "Maddi's AI" in f.format_response(k, d))
+    check("'are you an ai?' -> honest AI label", k and "agentWinter, Maddi's AI" in f.format_response(k, d))
 
     print("\nD. Retrieval")
     g = GradientProximitySearch(["i eat burritos", "pizza and burritos and birria", "nothing here"])
@@ -159,9 +170,14 @@ def main():
     print("\nE. Transport model (algorithm only)")
     config, store, tm = build(tmp, transport_mode="algo")
     check("only the owner's messages are loaded", all(r["is_owner"] for r in store.rows))
+    from core import colors
+    colors.ENABLED = True
     res = tm.answer("do you like burritos?")
+    colors.ENABLED = False
     print("     →", res.text.replace("\n", "\n       "))
     check("burritos -> YES with real quote", res.route == "algo" and ("burrito" in res.text.lower()), res.text)
+    check("chat quotes highlighted neon green on screen, saved plain",
+          colors.GREEN in res.display and colors.GREEN not in res.text, res.display)
     res = tm.answer("do you like pizza?")
     print("     →", res.text.replace("\n", "\n       "))
     check("pizza -> UNCLEAR (never a default YES)",

@@ -10,9 +10,10 @@ class TerminalUI:
     """Terminal-based user interface"""
 
     def __init__(self, adapter: ConversationAdapter, conversation_title: str = "",
-                 label: str = "Maddi's AI", debug: bool = False):
+                 label: str = "agentWinter", debug: bool = False, persona: str = "Maddi"):
         self.adapter = adapter
         self.label = label
+        self.persona = persona
         self.debug = debug
         self.conversation_title = conversation_title
         self.first_input_received = False
@@ -67,7 +68,9 @@ class TerminalUI:
         """Display header"""
         print("="*60)
         title_display = self.conversation_title if self.conversation_title else "new chat"
-        print(f"🚀 WINTER · {self.label} (an AI) - {title_display}")
+        print(f"🚀 {self.label} · {self.persona}'s AI - {title_display}")
+        from core import colors
+        print(f"   {colors.pink('pink')} = from memory vessels   {colors.green('green')} = {self.persona}'s own words")
         print("="*60)
         print("\nCommands: history | search <query> | quit\n")
 

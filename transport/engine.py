@@ -24,10 +24,14 @@ from transport.verdict import decide, polarity
 
 @dataclass
 class TransportResult:
-    text: str
+    text: str                        # plain (saved to history)
     route: str                       # algo | ai_pick | idk_gate | idk_votes | idk_empty
     used_ids: List[int] = field(default_factory=list)
     debug: Dict = field(default_factory=dict)
+    display: str = ""                # terminal version (green quotes); falls back to text
+
+    def shown(self) -> str:
+        return self.display or self.text
 
 
 class TransportModel:
@@ -145,4 +149,5 @@ class TransportModel:
         chosen = chosen[:3]
         shown = [dict(v, num=i + 1) for i, v in enumerate(chosen)]   # renumber 1..n
         text = render(opener, shown, qtype, changed)
-        return TransportResult(text, route, [v["idx"] for v in chosen], debug)
+        display = render(opener, shown, qtype, changed, highlight=True)
+        return TransportResult(text, route, [v["idx"] for v in chosen], debug, display)

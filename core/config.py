@@ -29,7 +29,7 @@ class Config:
 
     # Persona: the agent speaks AS this person, in first person
     persona_name: str = "Maddi"
-    agent_label: str = "Maddi's AI"
+    agent_label: str = "agentWinter"
     owner_handles: List[str] = field(default_factory=lambda: ["agentmaddi", "madddyyyyi"])
     style_samples: int = 5
 

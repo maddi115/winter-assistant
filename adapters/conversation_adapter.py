@@ -47,7 +47,7 @@ class ConversationAdapter:
         res.debug["ai_fallback"] = reply
         if not reply or invents_facts(reply) or len(reply.split()) > 45:
             return res                       # unsafe -> plain idk
-        res.text, res.route = reply, "ai_no_evidence"
+        res.text, res.display, res.route = reply, "", "ai_no_evidence"
         return res
 
     def chat(self, user_input: str) -> Iterator[str]:
@@ -57,9 +57,10 @@ class ConversationAdapter:
         fact_key, fact_data = self.router.route(user_input)
         if fact_key and fact_data:
             response = self.formatter.format_response(fact_key, fact_data)
+            shown = self.formatter.format_display(fact_key, fact_data)
             self.last_route, self.last_debug = "fact", {}
             self._save(user_input, response, start)
-            yield response
+            yield shown
             yield f"\n\n⏱️  {time.time() - start:.2f}s\n"
             return
 
@@ -83,7 +84,7 @@ class ConversationAdapter:
                     self.last_evidence_q = question
                     self.last_route, self.last_debug = res.route, res.debug
                     self._save(user_input, res.text, start)
-                    yield res.text
+                    yield res.shown()
                     yield f"\n\n⏱️  {time.time() - start:.2f}s · {res.route}\n"
                     return
                 except Exception as e:

@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Winter Assistant - Maddi's AI
+Winter Assistant - agentWinter (Maddi's AI)
 Answers questions about Maddi from Maddi's own words (Evidence-Transport-Model),
 and chats normally about everything else.
 """
@@ -91,7 +91,8 @@ def main():
     ai.style = style
 
     adapter = ConversationAdapter(storage, rag, ai, transport=transport, config=config)
-    ui = TerminalUI(adapter, conversation_title or "", label=config.agent_label, debug=config.debug)
+    ui = TerminalUI(adapter, conversation_title or "", label=config.agent_label, debug=config.debug,
+                    persona=config.persona_name)
     try:
         ui.run()
     except Exception as e:
