@@ -67,5 +67,9 @@
     "got high"
   ],
   "synthesis": true,
-  "synth_max_words": 25
+  "synth_max_words": 25,
+  "twitch_client_id": "n4grudwndh3m3v4kkp867nc20m9x73",
+  "twitch_channels": [
+    "agentwinterrr"
+  ]
 }

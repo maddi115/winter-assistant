@@ -5,7 +5,8 @@
   python tools/twitch_bot.py              # go live in config twitch_channels
   python tools/twitch_bot.py --dry-run    # no Twitch: type chat lines, see what it would send
                                           #   "someuser: @agentwinter do you like burritos?"
-Answers only when someone @mentions the bot, starts with !winter, or replies to it.
+twitch_reply_all=true (default): answers every chat message like a normal viewer.
+twitch_reply_all=false: only @mentions, !winter, and replies to the bot.
 """
 import argparse
 import asyncio
@@ -66,7 +67,7 @@ def dry_run(config, brain, bot):
         user, _, text = line.partition(":") if ":" in line else ("tester", "", line)
         user = user.strip().lower()
         m = Incoming("dryrun", "0", user, user, text.strip())
-        q = question_for_bot(m, bot, config.twitch_prefix, config.twitch_ignore_users)
+        q = question_for_bot(m, bot, config.twitch_prefix, config.twitch_ignore_users, config.twitch_reply_all)
         if q is None:
             print("   (not for the bot - ignored)")
             continue
@@ -90,14 +91,15 @@ async def live(config, brain):
         log(f"⚠️  Channels not found: {', '.join(missing)}")
     if not channels:
         raise SystemExit("❌ No channels to join. Set twitch_channels in config.json")
-    log(f"🤖 @{bot} ready · answers @{bot}, {config.twitch_prefix}, and replies to it")
+    how = "every message" if config.twitch_reply_all else f"@{bot}, {config.twitch_prefix}, and replies to it"
+    log(f"🤖 @{bot} ready · answers {how}")
 
     cd = Cooldown(config.twitch_user_cooldown, config.twitch_global_cooldown)
     queue = asyncio.Queue(maxsize=config.twitch_max_queue)
 
     async def on_event(event):
         m = parse_event(event)
-        q = question_for_bot(m, bot, config.twitch_prefix, config.twitch_ignore_users)
+        q = question_for_bot(m, bot, config.twitch_prefix, config.twitch_ignore_users, config.twitch_reply_all)
         if q is None:
             return
         if not cd.ready(m.user):

@@ -43,6 +43,14 @@ check("ignores other bots", question_for_bot(msg("!winter hi", user="nightbot"),
 check("bare @mention -> 'hey'", question_for_bot(msg("@agentwinter"), "agentwinter", "!winter", IGN) == "hey")
 check("@agentwinterfan is not the bot", question_for_bot(msg("@agentwinterfan hi"), "agentwinter", "!winter", IGN) is None)
 
+check("chat-like mode: answers a normal message", question_for_bot(msg("do you like burritos"), "agentwinter", "!winter", IGN, True) == "do you like burritos")
+check("chat-like mode: skips messages aimed at someone else", question_for_bot(msg("@someone lol"), "agentwinter", "!winter", IGN, True) is None)
+check("chat-like mode: skips replies to other people", question_for_bot(msg("true", reply_to="someone"), "agentwinter", "!winter", IGN, True) is None)
+check("chat-like mode: still ignores itself + bots",
+      question_for_bot(msg("hi", user="agentwinter"), "agentwinter", "!winter", IGN, True) is None
+      and question_for_bot(msg("hi", user="nightbot"), "agentwinter", "!winter", IGN, True) is None)
+check("chat-like mode: @bot still works", question_for_bot(msg("@agentwinter yo", mentions=["agentwinter"]), "agentwinter", "!winter", IGN, True) == "yo")
+
 print("\nB. Parsing a real EventSub event")
 ev = {"broadcaster_user_id": "123", "broadcaster_user_login": "chan", "chatter_user_id": "9",
       "chatter_user_login": "Viewer1", "chatter_user_name": "Viewer1", "message_id": "abc",

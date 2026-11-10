@@ -64,6 +64,7 @@ class Config:
     twitch_client_id: str = ""        # from dev.twitch.tv/console (Public client). Not a secret.
     twitch_channels: List[str] = field(default_factory=list)   # channels to chat in, e.g. ["yourchannel"]
     twitch_prefix: str = "!winter"    # "!winter do you like burritos?" (also answers @mentions + replies)
+    twitch_reply_all: bool = True     # true = chats like a normal viewer (answers every message, not just @/!winter)
     twitch_user_cooldown: int = 20    # seconds before the same chatter gets another answer
     twitch_global_cooldown: int = 3   # seconds between any two bot messages
     twitch_max_queue: int = 5         # questions waiting; more than this get skipped

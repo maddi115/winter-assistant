@@ -36,8 +36,11 @@ def parse_event(e: dict) -> Incoming:
                     reply_to_user=(reply.get("parent_user_login") or "").lower(), mentions=mentions)
 
 
-def question_for_bot(m: Incoming, bot: str, prefix: str, ignore: List[str]) -> Optional[str]:
-    """The text the bot should answer, or None if this message isn't for the bot."""
+def question_for_bot(m: Incoming, bot: str, prefix: str, ignore: List[str],
+                     reply_all: bool = False) -> Optional[str]:
+    """The text the bot should answer, or None if this message isn't for the bot.
+    reply_all=True: chats like a normal viewer - answers every message,
+    except ones aimed at someone else ("@otherguy lol")."""
     bot = bot.lower()
     if m.user == bot or m.user in {u.lower() for u in ignore}:
         return None
@@ -48,6 +51,8 @@ def question_for_bot(m: Incoming, bot: str, prefix: str, ignore: List[str]) -> O
     elif bot in m.mentions or at.search(text):
         q = text
     elif m.reply_to_user == bot:
+        q = text
+    elif reply_all and not m.reply_to_user and not (m.mentions or re.search(r"(^|\s)@\w", text)):
         q = text
     else:
         return None
