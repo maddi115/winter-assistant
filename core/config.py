@@ -59,6 +59,8 @@ class Config:
     debug: bool = False               # print route / stasis / votes after each answer
     stream_chat: bool = False         # true = stream word by word, but skips the "talks about me" check
     chat_context: str = ""            # extra line for the chat AI (the Twitch bot sets this)
+    personality_file: str = "memory/personality.md"   # how I talk (edit freely)
+    silent_when_unsure: bool = False  # true = say nothing instead of "lol nah." when the AI made something up
 
     # Twitch bot (python tools/twitch_bot.py)
     twitch_client_id: str = ""        # from dev.twitch.tv/console (Public client). Not a secret.
@@ -72,7 +74,14 @@ class Config:
     twitch_max_queue: int = 5         # questions waiting; more than this get skipped
     twitch_max_chars: int = 450       # Twitch limit is 500
     twitch_citations: bool = False    # true = keep [1][2] in chat
-    twitch_chat_memory: int = 4       # turns remembered per chatter
+    twitch_chat_memory: int = 0       # extra turns per chatter (the room history below already covers it)
+    twitch_room_lines: int = 15       # recent chat lines the AI sees (everyone, not just the bot)
+    twitch_one_on_one_sec: int = 120  # only one person chatting in this window -> always answer them
+    twitch_chime_chance: float = 0.2  # busy chat: chance to jump in on a message not aimed at me (x2 for questions)
+    twitch_chime_gap: int = 45        # busy chat: at least this many seconds between uninvited messages
+    twitch_idle_sec: int = 240        # chat quiet this long after a real convo -> say one thing (0 = never)
+    twitch_max_words: int = 18        # AI lines get cut to this (don't talk too much)
+    twitch_max_quotes: int = 1        # quotes from my messages per chat line
     twitch_max_reply_tokens: int = 120
     twitch_ignore_users: List[str] = field(default_factory=lambda: [
         "nightbot", "streamelements", "streamlabs", "moobot", "fossabot", "wizebot", "soundalerts", "sery_bot"])

@@ -138,7 +138,9 @@ class ConversationAdapter:
                 response = persona_guard(response, user_input, persona)
                 guarded = claim_guard(response)          # no invented likes/memories about me
                 if not guarded:
-                    guarded = templates.pick("NOPE", classify.tone(user_input))
+                    # in chat, saying nothing beats a random "lol nah."
+                    guarded = "" if getattr(self.config, "silent_when_unsure", False) \
+                        else templates.pick("NOPE", classify.tone(user_input))
                 response = guarded
                 from core import colors
                 yield colors.rainbow(response)       # the AI's own words

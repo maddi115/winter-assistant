@@ -81,3 +81,28 @@ stasis scoring, the gate thresholds and the 60/40 rerank (maddis-probability-sta
 ## License
 
 MIT
+
+## Twitch bot (agentWinter in chat)
+
+```bash
+python tools/twitch_bot.py --login      # once, signed in as the bot account
+python tools/twitch_bot.py --dry-run    # practice: type "name: message", /quiet = silence
+python tools/twitch_bot.py              # live in twitch_channels
+```
+
+```
+chat message ─▶ room history (everyone's last messages)
+              ─▶ talk.py: should I say something?
+                   direct (@me, reply, "winter", meow) ─ always
+                   only one person chatting ─────────── always
+                   busy chat ─────────────────────────── sometimes (twitch_chime_chance, twitch_chime_gap)
+                   aimed at someone else ─────────────── never
+              ─▶ brain.py: same pipeline as the terminal (facts, private, my quotes, AI)
+                   the AI sees the room + memory/personality.md
+              ─▶ cleanup: 1 quote, short, lowercase, no "!", no "never say" lines, no links
+              ─▶ send
+chat goes quiet after a real convo ─▶ one line about what people said (once)
+```
+
+`memory/personality.md` is how I talk. Edit it any time - it reloads by itself.
+Facts about me never come from that file, only from my real messages.

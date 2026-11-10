@@ -127,6 +127,7 @@ class FakeAdapter:
 
 cfg = Config()
 cfg.owner_handles = ["madddyyyyi"]
+cfg.twitch_chat_memory = 4
 b = brain_mod.Brain(cfg, FakeAdapter, max_chatters=2)
 line, route = b.reply("viewer1", "Viewer1", "hi")
 check("colors stripped, timer gone", line == "reply to hi (seen 0)", line)
@@ -167,6 +168,98 @@ bq = brain_mod.Brain(c2, QuoteAdapter)
 check("Maddi's real quotes are NOT humanized", bq.reply("v", "V", "do you like burritos")[0] == "For sure. I LOVE burritos!")
 bg = brain_mod.Brain(c2, FakeAdapter)
 check("AI chat lines ARE humanized", bg.reply("v", "V", "Hi")[0] == "reply to hi (seen 0)")
+
+print("\nI. Reads the room, knows when to talk")
+from twitch.room import Room
+from twitch.talk import decide, should_break_silence
+clock = [1000.0]
+room = Room("chan", clock=lambda: clock[0])
+c3 = Config()
+
+
+def say(user, text, **kw):
+    m = msg(text, user=user, **kw)
+    room.add(m.user, m.name, m.text)
+    clock[0] += 5
+    return decide(m, "agentwinterrr", c3, room, rng=lambda: 0.99)
+
+
+check("1-on-1: answers a plain message", say("viewer1", "yo") == ("yo", "1-on-1"), say("viewer1", "yo"))
+say("bob", "this stream is fire")
+q, why = say("viewer1", "lol fr")
+check("busy chat: stays out of it", q is None and why == "letting them talk", why)
+check("busy chat: answers when I'm named", say("bob", "winter what do u think") [1] == "said my name")
+check("busy chat: answers meow", say("bob", "meow")[1] == "said my name")
+check("busy chat: @me always works", say("bob", "@agentwinterrr yo", mentions=["agentwinterrr"])[1] == "direct")
+check("never jumps into replies to others", say("bob", "true", reply_to="viewer1")[0] is None)
+m = msg("anyone play valorant?", user="cara")
+room.add(m.user, m.name, m.text)
+check("busy chat: sometimes chimes in (chance)", decide(m, "agentwinterrr", c3, room, rng=lambda: 0.0)[1] == "chimed in")
+room.last_chime = clock[0]
+check("...but not twice in a row", decide(m, "agentwinterrr", c3, room, rng=lambda: 0.0)[1] == "chimed in recently")
+check("quiet mode (reply_all off) ignores plain chat",
+      decide(msg("yo", user="zed"), "agentwinterrr", Config(twitch_reply_all=False), Room("x"))[0] is None)
+
+print("\nJ. Breaks a silence once, never double texts")
+r2 = Room("chan", clock=lambda: clock[0])
+for u, t in [("viewer1", "who plays l4d2"), ("bob", "me"), ("viewer1", "bet")]:
+    r2.add(u, u, t)
+check("not yet - chat just happened", not should_break_silence(r2, c3))
+clock[0] += c3.twitch_idle_sec + 1
+check("quiet after a real convo -> speak", should_break_silence(r2, c3))
+r2.idle_spoken = True
+check("only once per silence", not should_break_silence(r2, c3))
+r2.add("bob", "bob", "back"); clock[0] += c3.twitch_idle_sec + 1
+check("a human talked again -> allowed again", should_break_silence(r2, c3))
+r2.add("agentwinterrr", "agentwinterrr", "lol", is_bot=True); clock[0] += c3.twitch_idle_sec + 1
+check("never double texts (my msg was last)", not should_break_silence(r2, c3))
+r3 = Room("c", clock=lambda: clock[0]); r3.add("a", "a", "hi"); clock[0] += 9999
+check("one lonely message isn't a convo", not should_break_silence(r3, c3))
+
+print("\nK. The AI sees the room + personality")
+
+
+class SeeAI:
+    def __init__(self, out):
+        self.out, self.prompts = out, []
+
+    def generate(self, q, ctx):
+        from core.ai_engine import persona_prompt
+        self.prompts.append(persona_prompt(c4, ""))
+        yield self.out
+
+
+class CtxAdapter(FakeAdapter):
+    def chat(self, q):
+        self.last_route = "general"
+        yield from SEE.generate(q, [])
+
+
+c4 = Config(); c4.owner_handles = []
+SEE = SeeAI("Hey there! L4D2 is honestly so fun, I could play it all day and night with the boys. How about you?")
+b4 = brain_mod.Brain(c4, CtxAdapter, ai=SEE, base_context="BASE")
+rr = Room("chan")
+rr.add("bob", "Bob", "who plays l4d2"); cur = rr.add("viewer1", "Viewer1", "winter u play l4d2?")
+out, _ = b4.reply("viewer1", "Viewer1", "winter u play l4d2?", rr, cur)
+P = SEE.prompts[-1]
+check("prompt has the recent chat", "Bob: who plays l4d2" in P, P[-300:])
+check("current message isn't repeated in the history", "Viewer1: winter u play" not in P)
+check("prompt has the personality file", "never say:" in P and "all lowercase" in P)
+check("reply is short + human", out == "hey l4d2 is honestly so fun, i could play it all day and night with the boys",
+      out)
+SEE.out = "As an AI, I can't play games. But it looks fun."
+out, _ = b4.reply("viewer1", "Viewer1", "hm", rr)
+check("'never say' sentence dropped", out == "but it looks fun", out)
+SEE.out = "skip"
+check("break_silence: 'skip' -> says nothing", b4.break_silence(rr) is None)
+SEE.out = "lowkey who's hopping on l4d2 tonight"
+check("break_silence: one line", b4.break_silence(rr) == "lowkey who's hopping on l4d2 tonight")
+three = "For sure. I like burritos [1] I love birria [2] chips too [3]\n   [1] twitch\n"
+check("only the best quote in chat (not choppy)", chat_line(three, max_quotes=1) == "For sure. I like burritos", chat_line(three, max_quotes=1))
+from core.personality import parse
+pp = parse("## vibe\nchill\n# comment\n## never say\nGreat question")
+check("personality file parses (comments skipped)", pp.sections["vibe"] == ["chill"] and pp.never == ["great question"])
+check("missing personality file is fine", __import__("core.personality", fromlist=["x"]).load("nope.md").prompt == "")
 
 print("\nF. Login (device code flow, faked)")
 calls = []

@@ -77,12 +77,17 @@ class Cooldown:
 
 
 def chat_line(text: str, max_chars: int = 450, citations: bool = False,
-              block_words: List[str] = ()) -> Optional[str]:
-    """Winter's terminal answer -> one safe Twitch message (or None = don't send)."""
+              block_words: List[str] = (), max_quotes: int = 0) -> Optional[str]:
+    """Winter's terminal answer -> one safe Twitch message (or None = don't send).
+    max_quotes=1: just the best quote - 3 quotes in a row reads choppy in chat."""
     text = (text or "").split("\n\n⏱️")[0]
     # keep the answer lines; drop citation / thread / "from my messages" lines (they start with spaces)
     lines = [l.strip() for l in text.split("\n") if l.strip() and not l.startswith((" ", "\t"))]
     s = " ".join(lines)
+    if max_quotes:
+        marks = list(re.finditer(r"(\[\d+\])+", s))
+        if len(marks) > max_quotes:
+            s = s[:marks[max_quotes - 1].end()]
     s = s.replace("✨", "").replace("🤖", "")
     if not citations:
         s = re.sub(r"\s*\[\d+\]", "", s)

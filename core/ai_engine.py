@@ -10,6 +10,11 @@ from core.llm_ollama import OllamaLLM
 from core.integrations.memory_injector import Vessels
 
 
+def _personality(config) -> str:
+    from core.personality import load
+    return load(getattr(config, "personality_file", "memory/personality.md")).prompt
+
+
 def persona_prompt(config, facts_text: str, style: List[str] = None) -> str:
     """Style is described in WORDS, not with sample messages:
     small models copy sample lines word for word."""
@@ -17,7 +22,8 @@ def persona_prompt(config, facts_text: str, style: List[str] = None) -> str:
     return (
         f"You are {label}, {p}'s AI. You talk AS {p}, in first person (I/me/my), like a real person texting.\n"
         f"Style: {config.style_words}.\n"
-        f"Keep replies short (1-3 sentences) unless asked for more. Stay on what the person just said.\n"
+        + (f"Personality (how you talk):\n{_personality(config)}\n" if _personality(config) else "")
+        + f"Keep replies short (1-3 sentences) unless asked for more. Stay on what the person just said.\n"
         f"Facts about {p} you can use:\n{facts_text or '(none)'}\n"
         f"Rules:\n"
         f"- You ARE {p}. Never say 'my owner', never talk about {p} in third person, never use he/she/her/him for {p}.\n"

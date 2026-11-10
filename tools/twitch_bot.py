@@ -1,12 +1,13 @@
 #!/usr/bin/env python
-"""agentWinter in Twitch chat.
+"""agentWinter in Twitch chat - hangs out like a regular.
 
   python tools/twitch_bot.py --login      # once: sign the BOT account in
   python tools/twitch_bot.py              # go live in config twitch_channels
-  python tools/twitch_bot.py --dry-run    # no Twitch: type chat lines, see what it would send
-                                          #   "someuser: @agentwinter do you like burritos?"
-twitch_reply_all=true (default): answers every chat message like a normal viewer.
-twitch_reply_all=false: only @mentions, !winter, and replies to the bot.
+  python tools/twitch_bot.py --dry-run    # no Twitch: type chat lines yourself
+                                          #   someuser: yo whats good
+                                          #   /quiet   (pretend chat went silent)
+
+How it decides to talk: see twitch/talk.py.   How it talks: memory/personality.md
 """
 import argparse
 import asyncio
@@ -18,12 +19,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from core.config import Config
-from twitch.rules import Incoming, parse_event, question_for_bot, Cooldown
+from twitch.rules import Incoming, parse_event, Cooldown
+from twitch.room import Room
+from twitch.talk import decide, should_break_silence
 
 TWITCH_CONTEXT = ("You're a regular person hanging out in Twitch chat, NOT an assistant. "
                   "Type like a real chatter: lowercase, usually 2-12 words, no emojis, no exclamation marks, "
                   "slang is fine. Don't greet formally, don't offer help, don't end with 'what's up?' "
-                  "or 'how about you?'. React like a friend would (lol, fr, nah, bet, same). "
+                  "or 'how about you?'. React to what chat is actually saying, like a friend would. "
                   "No links, no lists, never @everyone.")
 
 
@@ -33,8 +36,8 @@ def build_brain(config, no_ai=False):
     from main import build_transport
     from twitch.brain import Brain
 
-    config.chat_context = TWITCH_CONTEXT
     config.max_reply_tokens = config.twitch_max_reply_tokens
+    config.silent_when_unsure = True
     config.debug = False
     if no_ai:
         config.transport_mode = "algo"
@@ -52,8 +55,9 @@ def build_brain(config, no_ai=False):
         def generate(self, *_):
             yield "(general chat is off with --no-ai)"
 
-    return Brain(config, lambda mem: ConversationAdapter(storage, mem, ai or NoAI(),
-                                                         transport=transport, config=config))
+    return Brain(config, lambda mem: ConversationAdapter(storage, mem, ai or NoAI(), transport=transport,
+                                                         config=config),
+                 ai=ai, base_context=TWITCH_CONTEXT)
 
 
 def log(s):
@@ -61,23 +65,39 @@ def log(s):
 
 
 def dry_run(config, brain, bot):
-    print(f"\n🧪 Dry run as @{bot}. Type  user: message   (Ctrl+D to quit)\n")
-    cd = Cooldown(0, 0)
-    for line in sys.stdin:
-        line = line.strip()
-        if not line:
+    print(f"\n🧪 Dry run as @{bot}.  Type  user: message   ·  /quiet = chat goes silent  ·  Ctrl+D quits\n")
+    room = Room("dryrun")
+    for raw in sys.stdin:
+        raw = raw.strip()
+        if not raw:
             continue
-        user, _, text = line.partition(":") if ":" in line else ("tester", "", line)
+        if raw == "/quiet":
+            if room.lines:
+                room.lines[-1].ts -= config.twitch_idle_sec + 1
+            if should_break_silence(room, config):
+                said = brain.break_silence(room)
+                print(f"   → @{bot} (breaking the silence): {said or '(nothing worth saying)'}")
+                room.idle_spoken = True
+                if said:
+                    room.add(bot, bot, said, is_bot=True)
+            else:
+                print("   (not enough chat yet to start talking)")
+            continue
+        user, _, text = raw.partition(":") if ":" in raw else ("tester", "", raw)
         user = user.strip().lower()
         m = Incoming("dryrun", "0", user, user, text.strip())
-        q = question_for_bot(m, bot, config.twitch_prefix, config.twitch_ignore_users, config.twitch_reply_all)
+        line = room.add(m.user, m.name, m.text)
+        q, why = decide(m, bot, config, room)
         if q is None:
-            print("   (not for the bot - ignored)")
+            print(f"   (stays quiet: {why})")
             continue
         t0 = time.time()
-        reply, route = brain.reply(user, user, q)
-        cd.mark(user)
-        print(f"   → @{bot}: {reply or '(nothing sent)'}   [{route} · {time.time() - t0:.1f}s]")
+        reply, route = brain.reply(user, user, q, room, line)
+        if reply:
+            room.add(bot, bot, reply, is_bot=True)
+            if why == "chimed in":
+                room.last_chime = room.clock()
+        print(f"   → @{bot}: {reply or '(nothing worth saying)'}   [{why} · {route} · {time.time() - t0:.1f}s]")
 
 
 async def live(config, brain):
@@ -94,50 +114,75 @@ async def live(config, brain):
         log(f"⚠️  Channels not found: {', '.join(missing)}")
     if not channels:
         raise SystemExit("❌ No channels to join. Set twitch_channels in config.json")
-    how = "every message" if config.twitch_reply_all else f"@{bot}, {config.twitch_prefix}, and replies to it"
-    log(f"🤖 @{bot} ready · answers {how}")
+    rooms = {login: Room(login) for login in channels}
+    ids = dict(channels)
+    log(f"🤖 @{bot} ready · personality: {config.personality_file}")
 
     cd = Cooldown(config.twitch_user_cooldown, config.twitch_global_cooldown)
     queue = asyncio.Queue(maxsize=config.twitch_max_queue)
 
+    async def say(channel, text, reply_to=None):
+        await asyncio.sleep(cd.wait_global())
+        sent, why = await asyncio.to_thread(helix.send, ids[channel], bot_id, text,
+                                            reply_to if config.twitch_reply_thread else None)
+        cd.mark(bot)
+        if sent:
+            rooms[channel].add(bot, bot, text, is_bot=True)
+        return sent, why
+
     async def on_event(event):
         m = parse_event(event)
-        q = question_for_bot(m, bot, config.twitch_prefix, config.twitch_ignore_users, config.twitch_reply_all)
+        room = rooms.get(m.channel)
+        if room is None or m.user == bot:
+            return                          # my own messages are added when I send them
+        line = room.add(m.user, m.name, m.text)
+        q, why = decide(m, bot, config, room)
         if q is None:
             return
         if not cd.ready(m.user):
-            log(f"⏳ #{m.channel} {m.user} on cooldown: {q[:60]}")
+            log(f"⏳ {m.user} on cooldown: {q[:60]}")
             return
-        cd.mark(m.user)                     # counts from when they asked
+        cd.mark(m.user)
+        if why == "chimed in":
+            room.last_chime = room.clock()
         try:
-            queue.put_nowait((m, q))
+            queue.put_nowait((m, q, line, why))
         except asyncio.QueueFull:
             log(f"🚦 busy, skipped {m.user}: {q[:60]}")
 
     async def worker():
         while True:
-            m, q = await queue.get()
+            m, q, line, why = await queue.get()
             t0 = time.time()
             try:
-                reply, route = await asyncio.to_thread(brain.reply, m.user, m.name, q)
+                reply, route = await asyncio.to_thread(brain.reply, m.user, m.name, q, rooms[m.channel], line)
             except Exception as e:
                 log(f"❌ answer failed for {m.user}: {e}")
                 continue
             if not reply:
-                log(f"🚫 #{m.channel} {m.user}: {q[:60]} -> nothing safe to send [{route}]")
+                log(f"🤐 {m.user}: {q[:60]} -> nothing worth saying [{route}]")
                 continue
-            await asyncio.sleep(cd.wait_global())
-            sent, why = await asyncio.to_thread(helix.send, m.channel_id, bot_id, reply,
-                                            m.message_id if config.twitch_reply_thread else None)
-            cd.mark(m.user)
-            mark = "💬" if sent else f"⚠️  not sent ({why})"
-            log(f"{mark} #{m.channel} {m.user}: {q[:60]}\n          -> {reply}   [{route} · {time.time() - t0:.1f}s]")
+            sent, err = await say(m.channel, reply, m.message_id)
+            mark = "💬" if sent else f"⚠️  not sent ({err})"
+            log(f"{mark} {m.user}: {q[:60]}\n          -> {reply}   [{why} · {route} · {time.time() - t0:.1f}s]")
 
-    work = asyncio.create_task(worker())
+    async def silence_watch():
+        while True:
+            await asyncio.sleep(15)
+            for ch, room in rooms.items():
+                if should_break_silence(room, config) and queue.empty():
+                    room.idle_spoken = True
+                    said = await asyncio.to_thread(brain.break_silence, room)
+                    if said:
+                        sent, err = await say(ch, said)
+                        log(f"{'💭' if sent else '⚠️ '} #{ch} breaking the silence -> {said}")
+
+    tasks = [asyncio.create_task(worker()), asyncio.create_task(silence_watch())]
     try:
         await listen(helix, bot_id, channels, on_event, log)
     finally:
-        work.cancel()
+        for t in tasks:
+            t.cancel()
 
 
 def main():
