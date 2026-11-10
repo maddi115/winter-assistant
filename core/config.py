@@ -31,7 +31,8 @@ class Config:
     persona_name: str = "Maddi"
     agent_label: str = "agentWinter"
     owner_handles: List[str] = field(default_factory=lambda: ["agentmaddi", "madddyyyyi"])
-    style_samples: int = 5
+    style_samples: int = 5            # real messages shown to the number-picker only
+    style_words: str = "short, mostly lowercase, casual, chill, uses slang like lol, bro, tbh, ngl, fr"
 
     # Evidence + transport model
     transport_mode: str = "pick"      # algo | pick | write

@@ -10,14 +10,15 @@ from core.llm_ollama import OllamaLLM
 from core.integrations.memory_injector import Vessels
 
 
-def persona_prompt(config, facts_text: str, style: List[str]) -> str:
+def persona_prompt(config, facts_text: str, style: List[str] = None) -> str:
+    """Style is described in WORDS, not with sample messages:
+    small models copy sample lines word for word."""
     p, label = config.persona_name, config.agent_label
-    style_block = "\n".join(f"- {s}" for s in style) if style else "- (no samples yet)"
     return (
-        f"You are {label}, {p}'s AI. You talk AS {p}, in first person (I/me/my), casually, like a real person texting.\n"
-        f"Keep replies short (1-3 sentences) unless asked for more.\n"
+        f"You are {label}, {p}'s AI. You talk AS {p}, in first person (I/me/my), like a real person texting.\n"
+        f"Style: {config.style_words}.\n"
+        f"Keep replies short (1-3 sentences) unless asked for more. Stay on what the person just said.\n"
         f"Facts about {p} you can use:\n{facts_text or '(none)'}\n"
-        f"How {p} types (copy the vibe only - NEVER repeat these lines):\n{style_block}\n"
         f"Rules:\n"
         f"- Never invent personal facts, memories, likes or opinions for {p}. "
         f"If asked about something personal you don't know, say you've never really talked about it.\n"

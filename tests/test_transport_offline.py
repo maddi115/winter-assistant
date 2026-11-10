@@ -284,6 +284,13 @@ def main():
     a3 = "".join(ad.chat("how do i store rice?"))
     check("not about me -> general chat", a3.startswith("general"), a3)
 
+    print("\nF. General chat prompt")
+    from core.ai_engine import persona_prompt
+    cfg = Config()
+    prompt = persona_prompt(cfg, "vessel 1: USER_NAME = Maddi", ["i havent seen into waymos business model"])
+    check("general chat prompt has NO sample lines to copy", "waymos" not in prompt)
+    check("general chat prompt describes the style in words", cfg.style_words in prompt)
+
     print(f"\n{len(PASSED)} passed, {len(FAILED)} failed")
     sys.exit(1 if FAILED else 0)
 
