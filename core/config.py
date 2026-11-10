@@ -108,6 +108,7 @@ class Config:
     twitch_flying_mpm: int = 60           # chat this fast -> I only answer when someone talks to me
     twitch_burst_max: int = 3             # at most this many bot messages...
     twitch_burst_window: int = 30         # ...in this many seconds, all channels together
+    twitch_show_chat: bool = True         # terminal shows every chat message it reads (👀) + why it stayed quiet
     twitch_max_reply_tokens: int = 120
     twitch_ignore_users: List[str] = field(default_factory=lambda: [
         "nightbot", "streamelements", "streamlabs", "moobot", "fossabot", "wizebot", "soundalerts", "sery_bot"])

@@ -65,6 +65,7 @@ class Brain:
         self.ai = ai
         self.base = base_context
         self.chatters = OrderedDict()
+        self.last_context = ""
         self.max = max_chatters
         colors.ENABLED = False
 
@@ -88,9 +89,9 @@ class Brain:
         """The chat AI gets the recent chat + what I remember about this person
         as background (one answer at a time, so this is safe)."""
         ctx = self.base
-        if room is not None and room.lines:
-            ctx += (f"\nRecent chat in #{room.channel} (oldest first, 'you' = your own messages):\n"
-                    + room.as_text(self.c.twitch_room_lines, before))
+        recent = room.as_text(self.c.twitch_room_lines, before) if room is not None else ""
+        if recent:
+            ctx += (f"\nRecent chat in #{room.channel} (oldest first, 'you' = your own messages):\n" + recent)
         if talking_to:
             ctx += f"\nYou're answering {talking_to}. Don't repeat anything 'you' already said."
         if note:
@@ -106,6 +107,7 @@ class Brain:
             ctx += ("\nNot every message needs an answer. If this one doesn't (filler, a random word, "
                     "nothing to add), reply exactly: skip")
         self.c.chat_context = ctx
+        self.last_context = ctx[len(self.base):].strip()   # what the AI saw (for --show-context)
 
     def _polish(self, line, route, room=None):
         guest = getattr(room, "guest", False)
@@ -138,10 +140,10 @@ class Brain:
     def self_line(self, room, kind="silence", name=None, note=None, text=None):
         """Talking without being asked: silence / welcome (self_talk.py) or chime (talk.py).
         -> one line, or None when the AI has nothing good to say."""
+        self._set_room(room, current=text or "")      # first, so --show-context is never stale
         if self.ai is None or not hasattr(self.ai, "generate"):
             return None
         ask = SELF_ASK[kind].format(name=name or "someone", note=note or "", text=(text or "")[:200])
-        self._set_room(room, current=text or "")
         try:
             raw = "".join(self.ai.generate(ask, []))
         except Exception:

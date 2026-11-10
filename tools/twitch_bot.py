@@ -7,6 +7,7 @@
                                           #   someuser: yo whats good
                                           #   /quiet   (pretend chat went silent)
                                           #   /later   (pretend 3 hours passed - regulars come back)
+  python tools/twitch_bot.py --show-context   # also print the recent chat the AI saw for each reply
 
 When it answers: twitch/talk.py · when it starts talking on its own: twitch/self_talk.py
 Who it remembers: twitch/chatters.py · how it talks: memory/personality.md
@@ -87,6 +88,19 @@ def logged_in_name(config):
         return "winterrs0"
 
 
+SHOW_CONTEXT = False                       # --show-context: print what the AI was given for each reply
+
+
+def context_block(brain, route):
+    """The recent chat (and notes) the AI saw for this reply, indented for the terminal."""
+    if not SHOW_CONTEXT:
+        return ""
+    if route not in ("general", "ai_no_evidence", "chime", "ai_pick", "ai_synth"):
+        return "\n          (no AI context - answered from rules / my messages)"
+    body = brain.last_context or "(empty)"
+    return "\n          ┌ what the AI saw:\n" + "\n".join("          │ " + l for l in body.splitlines())
+
+
 def log(s):
     print(time.strftime("%H:%M:%S "), s, flush=True)
 
@@ -146,13 +160,14 @@ def dry_run(config, brain, bot, guest=False):
         t0 = time.time()
         reply, route = answer(brain, m, q, why, room, line, note)
         if not reply and why in MAY_SKIP:
-            print(f"   (stays quiet: didn't need a reply · {route} · {time.time() - t0:.1f}s)")
+            print(f"   (stays quiet: didn't need a reply · {route} · {time.time() - t0:.1f}s)" + context_block(brain, route))
             continue
         if reply:
             room.add(bot, bot, reply, is_bot=True)
             if why in JOIN_IN:
                 room.last_chime = room.clock()
-        print(f"   → @{bot}: {reply or '(nothing worth saying)'}   [{why} · {route} · {time.time() - t0:.1f}s]")
+        print(f"   → @{bot}: {reply or '(nothing worth saying)'}   [{why} · {route} · {time.time() - t0:.1f}s]"
+              + context_block(brain, route))
     print(f"\n🧠 remembered: " + "; ".join(people.note(u) for u in people.people))
 
 
@@ -231,6 +246,10 @@ async def live(config, brain):
             return
         line = room.add(m.user, m.name, m.text)
         q, why = decide(m, bot, config, room)
+        if config.twitch_show_chat:
+            what = "→ answering" if q is not None else f"(quiet: {why})"
+            log(f"👀 #{m.channel} {m.user}: {m.text[:90]}   {what}   [room: {len(room.lines)} lines, "
+                f"{room.mpm():.0f}/min]")
         people = people_for(room)
         away = people.seen(m.user, m.name, m.text, talked_to_me=q is not None) \
             if config.twitch_remember_chatters else 0.0
@@ -271,11 +290,12 @@ async def live(config, brain):
                 log(f"❌ answer failed for {m.user}: {e}")
                 continue
             if not reply:
-                log(f"🤐 {m.user}: {q[:60]} -> nothing worth saying [{route}]")
+                log(f"🤐 {m.user}: {q[:60]} -> nothing worth saying [{route}]" + context_block(brain, route))
                 continue
             sent, err = await say(m.channel, reply, m.message_id if why in THREAD else None)
             mark = "💬" if sent else f"⚠️  not sent ({err})"
-            log(f"{mark} {m.user}: {q[:60]}\n          -> {reply}   [{why} · {route} · {time.time() - t0:.1f}s]")
+            log(f"{mark} {m.user}: {q[:60]}\n          -> {reply}   [{why} · {route} · {time.time() - t0:.1f}s]"
+                + context_block(brain, route))
 
     async def self_watch():
         while True:
@@ -306,7 +326,10 @@ def main():
     ap.add_argument("--no-ai", action="store_true", help="algorithm only (with --dry-run)")
     ap.add_argument("--bot", default=None, help="bot name for --dry-run (default: the logged-in account)")
     ap.add_argument("--guest", action="store_true", help="--dry-run as if in someone else's channel")
+    ap.add_argument("--show-context", action="store_true", help="print the recent chat the AI saw for each reply")
     args = ap.parse_args()
+    global SHOW_CONTEXT
+    SHOW_CONTEXT = args.show_context
     config = Config.load()
     config.twitch_client_id = os.environ.get("TWITCH_CLIENT_ID", config.twitch_client_id)
 

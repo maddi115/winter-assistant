@@ -463,6 +463,23 @@ rs.add("viewer2", "Viewer2", "ICANT")
 bs.reply("viewer1", "Viewer1", "lol", rs)
 check("prompt explains emotes seen in chat", "ICANT = dying laughing" in SK.prompts[-1])
 
+print("\nP. You can see what it reads")
+SK.out = "ok"
+rv = Room("h"); rv.add("viewer1", "Viewer1", "anyone watching the game"); rv.add("viewer2", "Viewer2", "ICANT")
+cur = rv.add("viewer3", "Viewer3", "who won")
+bs.reply("viewer3", "Viewer3", "who won", rv, cur)
+check("last_context has the recent chat", "Viewer1: anyone watching the game" in bs.last_context
+      and "Viewer2: ICANT" in bs.last_context, bs.last_context[:200])
+check("last_context leaves out the long personality part", "BASE" not in bs.last_context)
+import tools.twitch_bot as tbot
+tbot.SHOW_CONTEXT = True
+blk = tbot.context_block(bs, "general")
+check("--show-context prints it", "what the AI saw" in blk and "Viewer1: anyone watching the game" in blk)
+check("rule answers say so", "no AI context" in tbot.context_block(bs, "private"))
+tbot.SHOW_CONTEXT = False
+check("off by default", tbot.context_block(bs, "general") == "")
+check("👀 chat view on by default", Config().twitch_show_chat is True)
+
 print("\nF. Login (device code flow, faked)")
 calls = []
 
