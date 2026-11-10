@@ -434,6 +434,15 @@ def main():
     check("7. chat: 'I haven't really watched any movies' removed",
           "watched" not in claim_guard("ngl i haven't really watched any movies tbh. what genre are you in the mood for?"))
 
+    from transport.verdict import action_polarity, polarity_about
+    check("weed: 'I havent smoked weed ever since' -> NO", action_polarity("I havent smoked weed ever since", ["smoke"]) == -1)
+    check("'burrito with tortilla chips ... i love that combination' -> about burritos",
+          polarity_about("burrito with tortilla chips are u fucking kidding omg i love that combination", ["burrito"]) == 1)
+    _, _, tm = build(tempfile.mkdtemp(), evidence=REAL + [("i fucking love black plain coffee", "agentmaddi", "2025-07-20 10:00:00")],
+                     transport_mode="algo")
+    r = tm.answer("do you like plain water?")
+    check("'plain water' is about water, not 'plain coffee'", "plain coffee" not in r.text.lower(), r.text)
+
     print("\nJ. Synthesis (last resort) + colors")
     from transport import synth as S
     shown = [{"num": 1, "display": "Burrito with tortilla chips are u fucking kidding OMG I LOVE THAT COMBINATION.",
@@ -448,6 +457,7 @@ def main():
     check("synth: invented 'salsa' -> rejected", S.check("Salsa and tortilla chips [1]", shown, q, "Maddi") is None)
     check("synth: no citation -> rejected", S.check("Tortilla chips and cheese", shown, q, "Maddi") is None)
     check("synth: cites a quote that doesn't exist -> rejected", S.check("Tortilla chips [7]", shown, q, "Maddi") is None)
+    check("synth: only citations, no words -> rejected", S.check("[1][2][3]", shown, q, "Maddi") is None)
 
     class SynthLLM:
         def __init__(self, answer):

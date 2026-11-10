@@ -155,11 +155,11 @@ class TransportModel:
             objects = [t for t in content_terms(question) if not verb or t not in {stem(v) for v in verb}]
             # the thing being asked about ("coffee" in "do you hate coffee?")
             # (never the verb itself: "hiked" in "have you hiked in the pasadena mountains?")
-            anchor = top[0].get("anchor") if top else None
-            subject = [anchor] if anchor and anchor in objects else objects
+            # the thing = the LAST noun: "plain water" -> water, "sweet drinks" -> drink
+            subject = objects[-1:] if objects else []
             # quotes must be about it ("i hate sweet stuff" is not about coffee)
             about = [v for v in chosen if mentions_object(v["text"], subject)]
-            chosen = about or [v for v in vessels if v["has_anchor"]][:2]
+            chosen = about or [v for v in vessels if mentions_object(v["text"], subject)][:2]
             if not chosen:
                 return self._idk(tone, "idk_gate", debug, bool(exclude))
             chosen_ids = {v["idx"] for v in chosen}

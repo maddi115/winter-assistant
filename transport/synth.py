@@ -62,6 +62,8 @@ def check(answer: str, shown: List[Dict], question: str, persona: str, max_words
     words = re.sub(r"\[\d+\]", " ", s)
     if len(words.split()) > max_words + 5:
         return None
+    if len([t for t in tokenize(words) if len(t) > 1]) < 3:
+        return None                                  # "[1][2][3]" alone isn't an answer
     # every sentence needs a citation
     for sent in re.split(r"(?<=[.!?])\s+", s):
         if len(sent.split()) >= 3 and not re.search(r"\[\d+\]", sent):

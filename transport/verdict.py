@@ -16,7 +16,7 @@ POS_PHRASES = [r"\bawesome\b", r"\bamazing\b", r"\bdelicious\b", r"\bso good\b",
 NEG_PHRASES = [r"\bgross\b", r"\bnasty\b", r"\bdisgusting\b", r"\bnot a fan\b", r"\bcant stand\b",
                r"\be+w+\b", r"\byuck\b", r"\byucky\b"]
 NEGATORS = {"not", "dont", "never", "no", "aint", "isnt", "doesnt", "didnt", "hardly", "barely",
-            "wouldnt", "cant", "nah", "nope"}
+            "wouldnt", "cant", "nah", "nope", "havent", "hasnt", "wont", "wasnt", "werent", "stopped", "quit"}
 ADVERBS = {"really", "rly", "kinda", "lowkey", "highkey", "honestly", "actually", "even", "still", "do", "just",
            "fucking", "fuckin", "freaking", "fkn", "so", "totally", "literally", "genuinely", "def",
            "definitely", "absolutely", "truly", "also", "always", "usually", "sometimes", "now", "lowk"}
@@ -184,7 +184,7 @@ def polarity_about(text: str, terms) -> int:
             pointed = not (k >= len(toks) or k > i + 8 or toks[k] == "i")
             # "i tried sushi again and i love IT now": it/that/them points back
             if not pointed and i + 1 < len(toks) and toks[i + 1] in ("it", "that", "them", "this", "those", "em", "these"):
-                pointed = any(x in terms for x in st[max(0, i - 8):i])
+                pointed = any(x in terms for x in st[max(0, i - 12):i])
             if not pointed:
                 continue
             neg = _negated(toks, i)
