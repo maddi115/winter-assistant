@@ -201,7 +201,8 @@ class TransportModel:
         for v in shown:
             t = self._thread(v["idx"])
             if t:
-                threads[v["num"]] = [(self.store.rows[j]["text"], is_q) for j, is_q in t]
+                threads[v["num"]] = [(v["display"] if is_q else self.store.rows[j]["text"], is_q)
+                                     for j, is_q in t]
         text = render(opener, shown, qtype, changed, threads=threads)
         display = render(opener, shown, qtype, changed, highlight=True, threads=threads)
         return TransportResult(text, route, [v["idx"] for v in chosen], debug, display)

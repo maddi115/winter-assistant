@@ -338,6 +338,11 @@ def main():
     from transport.verdict import decide
     v, _, _ = decide([{"text": "i instantly fall in love with them", "is_question": False}], verb="fall", objects=["bike"])
     check("action: 'fall in love' is not 'fell off my bike'", v == "UNCLEAR", v)
+    from transport.verdict import action_polarity
+    check("action: 'I only saw him eat one pizza' is NOT me eating",
+          action_polarity("Did he really eat a 3k pizza box? I only saw him eat one pizza", ["eat"]) == 0)
+    from transport.verdict import mentions_object
+    check("numbers in words: 'l4d2' matches", mentions_object("we should really play l4d2 sometime", ["l4d2"]))
     res = tm.answer("do you have a dog?")
     check("possession: 'my dad left the dog' is NOT 'I have a dog'", "dad" not in res.text.lower(), res.text)
     res = tm.answer("do you like sushi or burritos more?")

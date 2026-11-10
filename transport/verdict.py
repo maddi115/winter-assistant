@@ -20,7 +20,7 @@ ADVERBS = {"really", "rly", "kinda", "lowkey", "honestly", "actually", "even", "
 
 
 def _tokens(text: str) -> List[str]:
-    return re.findall(r"[a-z]+", text.lower().replace("'", "").replace("’", ""))
+    return re.findall(r"[a-z0-9]+", text.lower().replace("'", "").replace("’", ""))
 
 
 def _negated(toks: List[str], i: int, lookback: int = 3) -> bool:
@@ -74,6 +74,8 @@ HABIT_VERBS = {"drink", "eat", "play", "watch", "listen", "use", "wear", "ride",
 MODALS = {"wanna", "want", "might", "should", "could", "would", "will", "gonna", "wish", "may",
           "if", "maybe", "hope", "tryna", "planning", "plan", "need", "gotta"}
 SUBJECT = {"i", "we", "im", "ive", "id"}
+OTHERS = {"he", "him", "she", "her", "they", "them", "you", "u", "ya", "someone", "somebody", "people",
+          "hes", "shes", "theyre", "youre", "ur", "bro", "dude", "chat", "everyone"}
 
 
 def verb_forms(v: str):
@@ -95,7 +97,8 @@ def action_polarity(text: str, verbs) -> int:
         if t not in forms:
             continue
         window = toks[max(0, i - 4):i]
-        if not SUBJECT & set(window):
+        people = [w for w in window if w in SUBJECT or w in OTHERS]
+        if not people or people[-1] not in SUBJECT:   # "i saw HIM eat" -> he ate, not me
             continue
         if MODALS & set(window):              # "i wanna", "i might", "i wish": not done
             continue
