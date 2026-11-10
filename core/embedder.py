@@ -25,7 +25,7 @@ class Embedder:
         try:
             import torch
             if torch.cuda.is_available():
-                kw["model_kwargs"] = {"torch_dtype": torch.float16}   # half the VRAM
+                kw["model_kwargs"] = {"dtype": torch.float16}   # half the VRAM
         except Exception:
             pass
         self.model = SentenceTransformer(model_name, local_files_only=offline, **kw)

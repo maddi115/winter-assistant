@@ -52,6 +52,9 @@ class TransportModel:
         cands = self.searcher.search(question, exclude)
         if exclude:   # follow-up: only messages that still share the question's words
             cands = [x for x in cands if x["has_anchor"]]
+        # only things I said ABOUT MYSELF can answer a question about me:
+        # first person ("I", "my", "we") and not a question I asked someone else
+        cands = [x for x in cands if x["first_person"] and not x["is_question"]]
         if not cands:
             return self._idk(tone, "idk_empty", debug, bool(exclude))
         top = cands[:c.vessels_k]
@@ -72,8 +75,11 @@ class TransportModel:
         # 5. clear winner?
         margin = top[0]["combo"] - (top[1]["combo"] if len(top) > 1 else 0.0)
         # the answer must contain the question's rarest word (e.g. "burrito", not "get")
-        clear = top[0]["has_anchor"] and (len(top) == 1 or margin >= c.winner_margin)
-        debug["margin"] = round(margin, 3)
+        # ...or at least 2 of the top 3 contain it (they agree, so no need to ask the AI)
+        agree = (c.agree_skip and len(top) >= 2 and top[0]["has_anchor"]
+                 and sum(x["has_anchor"] for x in top[:3]) >= 2)
+        clear = top[0]["has_anchor"] and (len(top) == 1 or margin >= c.winner_margin or agree)
+        debug.update(margin=round(margin, 3), agree=agree)
         ai_openers = []
         mode = c.transport_mode if self.llm is not None else "algo"
 
@@ -82,9 +88,10 @@ class TransportModel:
             # 6. AI picks numbers (multiple choice), consensus vote
             print(f"(close call - asking the AI, {c.votes} votes) ", end="", flush=True)
             max_words = c.write_max_words if mode == "write" else c.opener_max_words
+            styles = None if mode == "write" else templates.OPENERS[("FOUND", tone)]
             msgs = build_messages(question, vessels, c.persona_name, c.agent_label,
-                                  self.style, max_words, mode == "write")
-            result = vote(self.llm, msgs, len(vessels), c.votes)
+                                  self.style, max_words, mode == "write", styles)
+            result = vote(self.llm, msgs, len(vessels), c.votes, styles)
             debug.update(votes=result["raw"], agreement=result["agreement"], vote_status=result["status"])
             if result["status"] == "error":
                 print("(AI didn't answer in time - using the algorithm) ", end="", flush=True)
@@ -100,7 +107,7 @@ class TransportModel:
             anchored = sorted([v for v in vessels if v["has_anchor"]], key=lambda v: v["is_question"])
             if not anchored:
                 return self._idk(tone, "idk_gate", debug, bool(exclude))
-            chosen = anchored[:1]
+            chosen = anchored[:2] if agree else anchored[:1]
             if not clear:   # close call without the AI: add the runner-up if it also has the key word
                 chosen += [v for v in anchored[1:2] if v["combo"] >= anchored[0]["combo"] - c.winner_margin]
             route = "algo" if debug.get("vote_status") != "error" else "algo_fallback"

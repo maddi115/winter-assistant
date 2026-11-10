@@ -14,7 +14,13 @@ WHATS = r"(whats|what is)"
 def normalize(text: str) -> str:
     text = text.lower().replace("’", "'").replace("'", "")
     text = re.sub(r"[^\w\s]", " ", text)
-    return re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"\s+", " ", text).strip()
+    # drop greetings in front: "hi whos ur owner" -> "whos ur owner"
+    while True:
+        new = re.sub(r"^(hi+|hey+|hello|yo+|sup|ok|okay|so|bro|um+|uh+)\b\s*", "", text)
+        if new == text:
+            return text
+        text = new
 
 
 class Router:
@@ -30,12 +36,15 @@ class Router:
                 rf"^{WHATS} {YOUR} (gpu|graphics card)$",
                 rf"^how much vram (do|does) {YOU} have$"],
         'AI_DISCLOSURE': [rf"^(are|r) {YOU} (an |a )?(ai|bot|robot|real|human|a real person)$"],
+        'AI_OWNER': [rf"^(who|whos|whose|who is|who s) {YOUR} (owner|creator|maker|dev|developer|boss)$",
+                     rf"^who (made|built|created|owns|programmed|coded|trained) {YOU}$",
+                     rf"^who do {YOU} belong to$", rf"^who {YOU} belong to$"],
         'AI_MODEL': [rf"^what (model|llm) (are|r) {YOU}( running| using| on)?$"],
         'AI_STORAGE': [rf"^what database do {YOU} use$"],
         'AI_EMBEDDING': [rf"^what embedding model do {YOU} use$"],
     }
     # which stored fact answers each pattern group
-    FACT_FOR = {'AI_DISCLOSURE': 'AI_NAME'}
+    FACT_FOR = {'AI_DISCLOSURE': 'AI_NAME', 'AI_OWNER': 'AI_NAME'}
 
     def __init__(self, vessels_obj):
         self.vessels = vessels_obj.vessels

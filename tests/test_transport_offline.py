@@ -78,6 +78,7 @@ EVIDENCE = [
     ("ok i tried sushi again and i love it now", "agentmaddi", "2025-08-01"),
     ("i fell really hard from my stupid bicycle", "madddyyyyi", "2025-06-05"),
     ("i love pizza so much", "somebody_else", "2025-06-06"),   # NOT the owner
+    ("there was a story about some restaurant owner harrassing a hotdog vendor", "agentmaddi", "2025-07-20"),
 ] + [(f"random chat line number {w} about the stream and stuff", "agentmaddi", "2025-06-30")
      for w in ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
                "eleven", "twelve", "lol", "bro", "chat", "hello", "goodnight", "gg", "wow", "nice"]]
@@ -122,6 +123,9 @@ def main():
     k, d = r.route("What's your name?")
     check("'What's your name?' -> I'm Maddi (first person)", k and f.format_response(k, d).startswith("I'm Maddi"),
           f.format_response(k, d) if k else None)
+    for q in ["hi whos ur owner?", "who made you", "whose ur owner", "who's your creator?"]:
+        k, d = r.route(q)
+        check(f"'{q}' -> 'Maddi made me'", k == "AI_OWNER" and "Maddi made me" in f.format_response(k, d), k)
     k, d = r.route("are you an ai?")
     check("'are you an ai?' -> honest AI label", k and "Maddi's AI" in f.format_response(k, d))
 
@@ -167,23 +171,31 @@ def main():
     print("     →", res.text.replace("\n", "\n       "))
     check("sushi -> newest wins (changed mind)", res.text.lower().find("love it now") < res.text.lower().find("dont like")
           and "Before that" in res.text, res.text)
+    res = tm.answer("do you have an owner?")
+    print("     →", res.text)
+    check("'restaurant owner' story (not about me) is never my answer", "restaurant" not in res.text, res.text)
     res = tm.answer("do you like quantum physics?")
     print("     →", res.text)
     check("no evidence -> idk in first person", res.route.startswith("idk"), res.route)
 
     print("\nE. Transport model (AI picks numbers, 3 votes)")
     q = "what games do you play?"
-    _, _, tm = build(tmp, ballots=[json.dumps({"pick": [1, 2], "opener": "honestly nothing specific"})] * 3,
-                     winner_margin=0.9)      # force a close call so the AI is asked
+    _, _, tm = build(tmp, ballots=[json.dumps({"pick": [1, 2], "style": 2})] * 3,
+                     winner_margin=0.9, agree_skip=False)      # force a close call so the AI is asked
     res = tm.answer(q)
     print("     →", res.text.replace("\n", "\n       "))
-    check("votes agree -> AI picks used, real quotes shown", res.route == "ai_pick" and "video games" in res.text, res.text)
-    check("AI opener kept after checking", res.text.lower().startswith("honestly nothing specific"), res.text)
+    check("votes agree -> AI picks used, real quotes shown", res.route == "ai_pick" and "video games" in res.text, (res.route, res.text))
+    check("pick mode: opener chosen by number from the menu", res.text.startswith("Honestly,"), res.text)
+    _, _, tm = build(tmp, ballots=[json.dumps({"pick": [1], "opener": "honestly nothing specific"})] * 3,
+                     winner_margin=0.9, agree_skip=False, transport_mode="write")
+    res = tm.answer(q)
+    check("write mode: AI's own opener kept after checking", res.text.lower().startswith("honestly nothing specific"), res.text)
     _, _, tm = build(tmp, ballots=[json.dumps({"pick": [1], "opener": "a"}), json.dumps({"pick": [3], "opener": "b"}),
-                                   json.dumps({"pick": [], "opener": "c"})], winner_margin=0.9)
+                                   json.dumps({"pick": [], "opener": "c"})], winner_margin=0.9, agree_skip=False)
     res = tm.answer(q)
     check("votes split -> idk", res.route == "idk_votes", res.route)
-    _, _, tm = build(tmp, ballots=[json.dumps({"pick": [9, 1], "opener": "In 1999 I did"})] * 3, winner_margin=0.9)
+    _, _, tm = build(tmp, ballots=[json.dumps({"pick": [9, 1], "opener": "In 1999 I did"})] * 3,
+                     winner_margin=0.9, agree_skip=False, transport_mode="write")
     res = tm.answer(q)
     check("bad number [9] dropped, bad opener replaced by template",
           res.route == "ai_pick" and "1999" not in res.text and "[2]" not in res.text, res.text)
@@ -191,11 +203,14 @@ def main():
     class DeadLLM:
         def chat_json(self, *a, **k):
             raise TimeoutError("timed out")
-    config, store, tm = build(tmp, winner_margin=0.9)
+    config, store, tm = build(tmp, winner_margin=0.9, agree_skip=False)
     tm.llm = DeadLLM()
     res = tm.answer(q)
     check("AI timeout -> algorithm answers instead of hanging", res.route == "algo_fallback"
           and "video games" in res.text, (res.route, res.text))
+    _, _, tm = build(tmp, ballots=[json.dumps({"pick": [], "style": 1})] * 3)
+    res = tm.answer("what games do you play?")
+    check("top results agree -> no AI needed (clear winner)", res.route == "algo", res.route)
 
     print("\nE. No repeats on follow-ups (adapter)")
 

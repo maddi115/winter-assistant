@@ -15,7 +15,7 @@ RRF_K = 60
 POOL = 15
 
 
-FIRST_PERSON = {"i", "im", "my", "me", "mine", "ive", "id", "ill", "myself"}
+FIRST_PERSON = {"i", "im", "my", "me", "mine", "ive", "id", "ill", "myself", "we", "us", "our", "were"}
 
 
 def keyword_score(terms: List[str], text: str, weights: Dict[str, float] = None) -> float:

@@ -4,6 +4,7 @@ Forced JSON reply, so even a tiny model gives valid output.
 Consensus: ask `votes` times and keep what the majority picked.
 If the votes disagree, that's unstable -> "idk" (probability stasis, applied to the AI).
 """
+import json
 from collections import Counter
 from typing import List, Dict
 
@@ -17,12 +18,33 @@ SCHEMA = {
     },
     "required": ["pick", "opener"],
 }
+SCHEMA_STYLE = {
+    "type": "object",
+    "properties": {
+        "pick": {"type": "array", "items": {"type": "integer"}},
+        "style": {"type": "integer"},
+    },
+    "required": ["pick", "style"],
+}
 
 
-def build_messages(question, vessels, persona, agent_label, style, max_words, write_mode):
+def build_messages(question, vessels, persona, agent_label, style, max_words, write_mode, styles=None):
     style_block = "\n".join(f"- {s}" for s in style) or "- (none)"
-    opener_rule = (f"a short line (max {max_words} words) that leads into the quotes"
-                   if write_mode else f"a short opener (max {max_words} words), like 'oh for sure' or 'honestly'")
+    if not write_mode and styles:
+        # multiple choice again: even a tiny model can pick a number
+        menu = "  ".join(f"{i}) {o}" for i, o in enumerate(styles, 1))
+        system = (
+            f"You are {agent_label}. You talk AS {persona}.\n"
+            f"Below are numbered things {persona} really said.\n"
+            f"Task 1: pick the numbers where {persona} is talking about the thing in the question. "
+            f"If none of them answer it, return an empty list.\n"
+            f"Task 2: pick the opener number that fits best: {menu}\n"
+            f'Reply ONLY as JSON: {{"pick": [numbers], "style": number}}'
+        )
+        listing = "\n".join(f"[{v['num']}] {v['display']}" for v in vessels)
+        return [{"role": "system", "content": system},
+                {"role": "user", "content": f"Question: {question}\n\n{listing}"}]
+    opener_rule = f"a short line (max {max_words} words) that leads into the quotes"
     system = (
         f"You are {agent_label}. You talk AS {persona}, in first person (I/me/my).\n"
         f"Below are numbered things {persona} really said.\n"
@@ -38,20 +60,27 @@ def build_messages(question, vessels, persona, agent_label, style, max_words, wr
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
-def vote(llm, messages, n_vessels: int, votes: int) -> Dict:
+def vote(llm, messages, n_vessels: int, votes: int, styles=None) -> Dict:
     """Returns {'status': ok|none|split|error, 'picks': [...], 'openers': [...], 'agreement': 0..1, 'raw': [...]}."""
     votes = max(1, int(votes))
     temperature = 0.0 if votes == 1 else 0.7
     ballots, openers, raw = [], [], []
     for _ in range(votes):
         try:
-            reply = llm.chat_json(messages, SCHEMA, max_tokens=80, temperature=temperature)
+            reply = llm.chat_json(messages, SCHEMA_STYLE if styles else SCHEMA,
+                                  max_tokens=80, temperature=temperature)
         except Exception as e:
             # timeout / Ollama down: don't wait through every vote
             return {"status": "error", "picks": [], "openers": [], "agreement": 0.0,
                     "raw": raw + [f"error: {e}"]}
         raw.append(reply)
         picks, opener = parse_reply(reply)
+        if styles:   # opener chosen by number from the menu
+            try:
+                n = int(json.loads(reply).get("style", 0))
+            except Exception:
+                n = 0
+            opener = styles[n - 1] if 1 <= n <= len(styles) else ""
         picks = clean_picks(picks, n_vessels)
         ballots.append(tuple(sorted(picks)))
         openers.append((tuple(sorted(picks)), opener))

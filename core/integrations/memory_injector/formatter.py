@@ -14,6 +14,8 @@ class Formatter:
             'LOCATION': f"I'm in {value}.",
             'AI_DISCLOSURE': (f"Yeah, I'm {value}, an AI that talks as {self.persona} "
                               f"using things {self.persona} actually said."),
+            'AI_OWNER': (f"{self.persona} made me. I'm {value}, and I talk as {self.persona} "
+                         f"using things {self.persona} actually said."),
             'AI_NAME': f"I'm {value}.",
             'AI_MODEL': f"I'm running {value}.",
             'AI_STORAGE': f"I use {value}.",
