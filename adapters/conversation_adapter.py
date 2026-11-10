@@ -49,7 +49,8 @@ class ConversationAdapter:
         reply = persona_guard(reply or "", user_input, self.config.persona_name)
         if not reply or invents_facts(reply) or len(reply.split()) > 45:
             return res                       # unsafe -> plain idk
-        res.text, res.display, res.route = reply, "", "ai_no_evidence"
+        from core import colors
+        res.text, res.display, res.route = reply, colors.rainbow(reply), "ai_no_evidence"
         return res
 
     def chat(self, user_input: str) -> Iterator[str]:
@@ -129,7 +130,8 @@ class ConversationAdapter:
                 if not guarded:
                     guarded = templates.pick("NOPE", classify.tone(user_input))
                 response = guarded
-                yield response
+                from core import colors
+                yield colors.rainbow(response)       # the AI's own words
             self.last_route, self.last_debug = "general", {}
             self._save(user_input, response, start)
             yield f"\n\n⏱️  {time.time() - start:.2f}s · general\n"

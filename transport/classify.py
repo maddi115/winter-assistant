@@ -102,9 +102,28 @@ def compare_options(q: str):
 
 def private_pattern(topics):
     words = [re.escape(t.lower()) for t in topics if t.strip()]
-    return re.compile(r"\b(" + "|".join(words) + r")\b", re.I) if words else None
+    return re.compile(r"\b(?:" + "|".join(words) + r")\b", re.I) if words else None
 
 
 def is_private(text: str, topics) -> bool:
     pat = private_pattern(topics)
     return bool(pat and pat.search(text.lower().replace("’", "'")))
+
+
+SLANG_VERBS = [(r"\b(fw|fwm|fuck with|fucks with|fuckin with|fucking with|rock with|vibe with|mess with)\b", "like"),
+         (r"\bfav\b", "favorite"), (r"\bfave\b", "favorite")]
+
+
+def unslang(q: str) -> str:
+    """'do u fw kombucha' -> 'do u like kombucha'."""
+    t = q
+    for pat, rep in SLANG_VERBS:
+        t = re.sub(pat, rep, t, flags=re.I)
+    return t
+
+
+def question_verbs(q: str):
+    """All base forms of the question's verb: 'have you hiked' -> ['hiked', 'hike', 'hik']."""
+    from transport.verdict import base_forms
+    v = question_verb(q)
+    return sorted(base_forms(v)) if v else []

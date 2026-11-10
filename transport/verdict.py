@@ -13,10 +13,13 @@ POS_VERBS = {"like", "love", "enjoy", "adore", "luv", "liked", "loved", "enjoyed
 NEG_VERBS = {"hate", "dislike", "despise", "hated", "disliked"}
 POS_PHRASES = [r"\bawesome\b", r"\bamazing\b", r"\bdelicious\b", r"\bso good\b", r"\bthe best\b",
                r"\bmy fav(orite|ourite|e)?\b", r"\bguilty pleasure\b", r"\bobsessed\b"]
-NEG_PHRASES = [r"\bgross\b", r"\bnasty\b", r"\bdisgusting\b", r"\bnot a fan\b", r"\bcant stand\b"]
+NEG_PHRASES = [r"\bgross\b", r"\bnasty\b", r"\bdisgusting\b", r"\bnot a fan\b", r"\bcant stand\b",
+               r"\be+w+\b", r"\byuck\b", r"\byucky\b"]
 NEGATORS = {"not", "dont", "never", "no", "aint", "isnt", "doesnt", "didnt", "hardly", "barely",
             "wouldnt", "cant", "nah", "nope"}
-ADVERBS = {"really", "rly", "kinda", "lowkey", "honestly", "actually", "even", "still", "do", "just"}
+ADVERBS = {"really", "rly", "kinda", "lowkey", "highkey", "honestly", "actually", "even", "still", "do", "just",
+           "fucking", "fuckin", "freaking", "fkn", "so", "totally", "literally", "genuinely", "def",
+           "definitely", "absolutely", "truly", "also", "always", "usually", "sometimes", "now", "lowk"}
 
 
 def _tokens(text: str) -> List[str]:
@@ -78,6 +81,25 @@ OTHERS = {"he", "him", "she", "her", "they", "them", "you", "u", "ya", "someone"
           "hes", "shes", "theyre", "youre", "ur", "bro", "dude", "chat", "everyone"}
 
 
+REVERSE_IRREGULAR = {past: base for base, pasts in IRREGULAR.items() for past in pasts}
+
+
+def base_forms(v: str):
+    """'hiked' -> {'hike', 'hik'}, 'used' -> {'use', 'us'}, 'went' -> {'go'}, 'tried' -> {'try'}."""
+    out = {v}
+    if v in REVERSE_IRREGULAR:
+        out.add(REVERSE_IRREGULAR[v])
+    if v.endswith("ied") and len(v) > 4:
+        out.add(v[:-3] + "y")
+    if v.endswith("ed") and len(v) > 3:
+        out |= {v[:-2], v[:-1]}
+        if v[-3] == v[-4]:
+            out.add(v[:-3])                                  # stopped -> stop
+    if v.endswith("ing") and len(v) > 5:
+        out |= {v[:-3], v[:-3] + "e"}
+    return out
+
+
 def verb_forms(v: str):
     forms = {v, v + "s", v + "ed", v + "d", v + "ing", v + "es"}
     if v.endswith("e"):
@@ -92,7 +114,8 @@ def action_polarity(text: str, verbs) -> int:
     toks = _tokens(text)
     forms = set()
     for v in verbs:
-        forms |= verb_forms(v)
+        for b in base_forms(v):
+            forms |= verb_forms(b)
     for i, t in enumerate(toks):
         if t not in forms:
             continue
@@ -113,6 +136,8 @@ def possesses(text: str, thing: str) -> bool:
     for i, t in enumerate(toks):
         if stem(t) == thing:
             window = toks[max(0, i - 4):i]
+            if "if" in toks[max(0, i - 6):i]:                  # "if u were my girlfriend" = hypothetical
+                continue
             if window[-3:] and "my" in window[-3:]:
                 return True
             if {"having"} & set(window) or (SUBJECT & set(window) and
@@ -131,22 +156,74 @@ def mentions_object(text: str, objects) -> bool:
     return any(o in toks for o in objects)
 
 
-def decide(vessels: List[Dict], flip: bool = False, verb: str = None,
-           objects=None) -> Tuple[str, bool, List[Dict]]:
+def polarity_about(text: str, terms) -> int:
+    """Like polarity(), but a feeling only counts if it points AT the thing:
+    'i love hiking' -> +1 for hiking; 'i like ur ex... she posted on tea app' -> 0 for tea."""
+    from retrieval.gradient import stem
+    terms = set(terms or [])
+    if not terms:
+        return polarity(text)
+    toks = _tokens(text)
+    st = [stem(t) for t in toks]
+    def near(i, after=8, before=4):
+        return any(s in terms for s in st[i + 1:i + 1 + after]) or any(s in terms for s in st[max(0, i - before):i])
+    score = 0
+    for i, t in enumerate(toks):
+        if t in POS_VERBS or t in NEG_VERBS:
+            j = i - 1
+            while j >= 0 and (toks[j] in ADVERBS or toks[j] in NEGATORS):
+                j -= 1
+            if j < 0 or toks[j] not in ("i", "we", "im"):
+                continue
+            # the thing must come right after the feeling, before another "i ..." starts
+            k = i + 1
+            while k < len(toks) and k <= i + 8 and toks[k] != "i":
+                if st[k] in terms:
+                    break
+                k += 1
+            pointed = not (k >= len(toks) or k > i + 8 or toks[k] == "i")
+            # "i tried sushi again and i love IT now": it/that/them points back
+            if not pointed and i + 1 < len(toks) and toks[i + 1] in ("it", "that", "them", "this", "those", "em", "these"):
+                pointed = any(x in terms for x in st[max(0, i - 8):i])
+            if not pointed:
+                continue
+            neg = _negated(toks, i)
+            if t in POS_VERBS:
+                score += -1 if neg else 1
+            elif not neg:
+                score -= 1
+    clean = " ".join(toks)
+    for pats, sign in ((POS_PHRASES, 1), (NEG_PHRASES, -1)):
+        for p in pats:
+            for m in re.finditer(p, clean):
+                i = len(clean[:m.start()].split())
+                before = clean[:m.start()].split()
+                if not any(w in NEGATORS for w in before[-2:]) and near(i, after=4, before=8):
+                    score += sign
+    return (score > 0) - (score < 0)
+
+
+def decide(vessels: List[Dict], flip: bool = False, verb=None,
+           objects=None, subject=None) -> Tuple[str, bool, List[Dict]]:
     """Returns (verdict, changed_mind, vessels ordered for display).
     verb = the question's verb ("fall" in "did you fall off your bike?"),
     objects = the question's other words ("bike")."""
+    verbs = verb if isinstance(verb, (list, set, tuple)) else ([verb] if verb else [])
+    feeling_q = not verbs or any(v in FEELING_VERBS for v in verbs)
+
     def score(v):
         if v.get("is_question"):              # "do you like X?" isn't a statement about me
             return 0
-        if verb and verb not in FEELING_VERBS:
+        if subject and not mentions_object(v["text"], subject):
+            return 0                          # "i hate sweet stuff" says nothing about coffee
+        if not feeling_q:
             # "did you fall off your bike?": only the action counts, and it must be about the bike
             # ("i like girls who... i fall in love" says nothing about bikes)
             if not mentions_object(v["text"], objects):
                 return 0
-            return action_polarity(v["text"], [verb]) or polarity(v["text"]) * 0
-        p = polarity(v["text"])                # feelings: "i love it", "i hate it"
-        if p == 0 and (not verb or verb in FEELING_VERBS):
+            return action_polarity(v["text"], verbs)
+        p = polarity_about(v["text"], subject) if subject else polarity(v["text"])   # feelings about IT
+        if p == 0:
             # "i drink that stuff in 1 day" -> yes; but "i dont eat X anymore" isn't "i hate X"
             p = max(0, action_polarity(v["text"], HABIT_VERBS))
         return p

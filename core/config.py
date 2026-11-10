@@ -51,6 +51,8 @@ class Config:
         "ozempic", "wegovy", "semaglutide", "medication", "meds", "diagnosis", "therapy", "therapist",
         "doctor", "thyroid", "cancer", "health", "weight", "pounds", "lbs", "address", "real name",
         "password", "phone number", "where do you work", "where u work", "social security"])
+    synthesis: bool = True            # last resort: one checked sentence built from several quotes
+    synth_max_words: int = 25
     threads: bool = True              # show messages right before/after a quote
     thread_window_sec: int = 180      # ...within this many seconds, same channel
     thread_max: int = 2               # ...at most this many on each side

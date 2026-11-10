@@ -49,6 +49,7 @@ class TransportModel:
     def answer(self, question: str, exclude: Set[int] = frozenset(),
                tone_source: Optional[str] = None) -> TransportResult:
         c = self.c
+        question = classify.unslang(question)              # "do u fw kombucha" -> "do u like kombucha"
         tone = classify.tone(tone_source or question)
         qtype = classify.question_type(question)
         debug = {"qtype": qtype, "tone": tone}
@@ -67,8 +68,9 @@ class TransportModel:
         cands = [x for x in cands if x["first_person"] and not x["is_question"]]
         # "did you fall off your bike?": candidates must mention the bike, not just "fall"
         qverb = classify.question_verb(question) if qtype == "yes_no" else None
+        qverbs = classify.question_verbs(question) if qverb else []
         if qverb and qverb not in ("like", "love", "enjoy", "hate", "dislike", "adore", "prefer"):
-            objs = [t for t in content_terms(question) if t != stem(qverb)]
+            objs = [t for t in content_terms(question) if t not in {stem(v) for v in qverbs}]
             if objs:
                 cands = [dict(x, has_anchor=True) for x in cands if mentions_object(x["text"], objs)]
         # "do you have a dog?" needs "my dog" / "i got a dog"
@@ -131,6 +133,7 @@ class TransportModel:
                 chosen = [vessels[p - 1] for p in result["picks"]]
                 ai_openers = result["openers"]
                 route = "ai_pick"
+                debug["needs_synth"] = result.get("needs_synth", False)
 
         if route is None:
             # statements before questions ("do asian people eat hot cheetos?" isn't about me)
@@ -148,19 +151,30 @@ class TransportModel:
             # the verdict sees every packed message about the subject that states a feeling,
             # so a newer "i love it now" can't hide behind a clear winner
             # (top 15, so a "guilty pleasure" message ranked #8 still counts)
-            verb = classify.question_verb(question)
-            objects = [t for t in content_terms(question) if verb is None or t != stem(verb)]
+            verb = classify.question_verbs(question) or None
+            objects = [t for t in content_terms(question) if not verb or t not in {stem(v) for v in verb}]
+            # the thing being asked about ("coffee" in "do you hate coffee?")
+            # (never the verb itself: "hiked" in "have you hiked in the pasadena mountains?")
+            anchor = top[0].get("anchor") if top else None
+            subject = [anchor] if anchor and anchor in objects else objects
+            # quotes must be about it ("i hate sweet stuff" is not about coffee)
+            about = [v for v in chosen if mentions_object(v["text"], subject)]
+            chosen = about or [v for v in vessels if v["has_anchor"]][:2]
+            if not chosen:
+                return self._idk(tone, "idk_gate", debug, bool(exclude))
             chosen_ids = {v["idx"] for v in chosen}
             wide = pack(cands[:15], question, 15)
             def states(v):
                 return (polarity(v["text"]) != 0
-                        or (verb and mentions_object(v["text"], objects) and action_polarity(v["text"], [verb]) != 0)
+                        or (verb and mentions_object(v["text"], objects) and action_polarity(v["text"], verb) != 0)
                         or action_polarity(v["text"], HABIT_VERBS) > 0)
             extra = [v for v in wide if v["idx"] not in chosen_ids and v["has_anchor"]
                      and not v["is_question"] and states(v)]
             verdict, changed, ordered = decide(chosen + extra, flip=classify.asks_negative(question),
-                                               verb=verb, objects=objects)
-            debug["verb"] = verb
+                                               verb=verb, objects=objects, subject=subject)
+            if debug.get("possession") and verdict == "UNCLEAR":
+                verdict = "YES"                # "U look like my sister" proves I have one
+            debug.update(verb=verb, subject=subject)
             # show the messages that actually support the verdict
             chosen = ordered if (changed or verdict != "UNCLEAR") else chosen
             opener = templates.pick("CHANGED" if changed else verdict, tone)   # verdict is never the AI's call
@@ -178,7 +192,22 @@ class TransportModel:
                 chosen = chosen[:3]
 
         chosen = chosen[:3]
-        return self._finish(opener, chosen, qtype, changed, route, debug)
+
+        # 8. LAST RESORT: no single quote answers it -> one checked sentence built from the quotes
+        synth = None
+        if (qtype != "yes_no" and debug.get("needs_synth") and c.synthesis and self.llm is not None
+                and len(chosen) >= 1):
+            from transport import synth as S
+            shown = [dict(v, num=i + 1) for i, v in enumerate(chosen)]
+            try:
+                raw = S.synthesize(self.llm, question, shown, c.persona_name, c.agent_label, c.synth_max_words)
+            except Exception as e:
+                raw = f"error: {e}"
+            synth = S.check(raw, shown, question, c.persona_name, c.synth_max_words)
+            debug.update(synth_raw=raw, synth_ok=bool(synth))
+            if synth:
+                route = "ai_synth"
+        return self._finish(opener, chosen, qtype, changed, route, debug, synth)
 
     # ---------- helpers ----------
     @property
@@ -195,7 +224,7 @@ class TransportModel:
         lines = [self.store.rows[j]["text"][:60] for j, is_q in self._thread(idx) if not is_q]
         return " / ".join(lines)
 
-    def _finish(self, opener, chosen, qtype, changed, route, debug):
+    def _finish(self, opener, chosen, qtype, changed, route, debug, synth=None):
         shown = [dict(v, num=i + 1) for i, v in enumerate(chosen)]   # renumber 1..n
         threads = {}
         for v in shown:
@@ -203,8 +232,8 @@ class TransportModel:
             if t:
                 threads[v["num"]] = [(v["display"] if is_q else self.store.rows[j]["text"], is_q)
                                      for j, is_q in t]
-        text = render(opener, shown, qtype, changed, threads=threads)
-        display = render(opener, shown, qtype, changed, highlight=True, threads=threads)
+        text = render(opener, shown, qtype, changed, threads=threads, synth=synth)
+        display = render(opener, shown, qtype, changed, highlight=True, threads=threads, synth=synth)
         return TransportResult(text, route, [v["idx"] for v in chosen], debug, display)
 
     def _compare(self, question, opts, tone, debug):
@@ -216,13 +245,18 @@ class TransportModel:
             mine = [x for x in cands if x["first_person"] and not x["is_question"]
                     and stem_ in {s for s in __import__("retrieval.gradient", fromlist=["x"]).content_terms(x["text"])}]
             vs = pack(mine[:8], f"do you like {word}", 8)
-            scored = sorted(((polarity(v["text"]), v) for v in vs), key=lambda p: -p[0])
+            def side_score(v, term=stem_):
+                from transport.verdict import polarity_about
+                p = polarity_about(v["text"], [term])
+                return p if p else max(0, action_polarity(v["text"], HABIT_VERBS))   # "i drink coffee everyday"
+            scored = sorted(((side_score(v), v) for v in vs), key=lambda p: -p[0])
             score = sum(p for p, _ in scored)
             best = [v for p, v in scored if p > 0][:3]
-            sides.append({"word": word, "score": score, "best": best, "n": len(vs)})
+            worst = [v for p, v in scored if p < 0][:1]
+            sides.append({"word": word, "score": score, "best": best, "worst": worst, "n": len(vs)})
         a, b = sides
         debug["compare"] = {a["word"]: a["score"], b["word"]: b["score"]}
-        if not a["best"] and not b["best"]:
+        if not a["best"] and not b["best"] and a["score"] == b["score"]:
             return self._idk(tone, "idk_empty", debug)
         def pick_two(first, second):
             # one quote per side; a message about BOTH ("burritos xxtra hot cheetos...") counts once
@@ -235,6 +269,9 @@ class TransportModel:
             chosen = pick_two(a, b)
         else:
             win, lose = (a, b) if a["score"] > b["score"] else (b, a)
-            opener = f"{win['word'].capitalize()}, for sure." if tone == "casual" else f"{win['word'].capitalize()}."
-            chosen = pick_two(win, lose)
+            if win["best"]:
+                opener = f"{win['word'].capitalize()}, for sure." if tone == "casual" else f"{win['word'].capitalize()}."
+            else:                              # winner only by the other side being disliked
+                opener = f"{win['word'].capitalize()} I guess, not big on {lose['word']}."
+            chosen = pick_two(win, lose) or lose.get("worst", [])
         return self._finish(opener, chosen[:2], "compare", False, "algo", debug)

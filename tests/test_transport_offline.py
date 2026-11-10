@@ -93,7 +93,7 @@ EVIDENCE = [   # (text, author, time) - times close together in one channel make
                "eleven", "twelve", "lol", "bro", "chat", "hello", "goodnight", "gg", "wow", "nice"])]
 
 
-def build(tmp, ballots=None, **overrides):
+def build(tmp, ballots=None, evidence=None, llm=None, **overrides):
     config = Config()
     config.storage_path = tmp
     config.stability_min = 0.50
@@ -102,23 +102,24 @@ def build(tmp, ballots=None, **overrides):
         setattr(config, k, v)
     emb = FakeEmbedder()
     db = lancedb.connect(tmp)
+    EV = evidence or EVIDENCE
     if not has_table(db, TABLE):
         owner = {h.lower() for h in config.owner_handles}
         df = pd.DataFrame({
-            "id": range(len(EVIDENCE)),
-            "text": [t for t, _, _ in EVIDENCE],
-            "author": [a for _, a, _ in EVIDENCE],
-            "is_owner": [a.lower() in owner for _, a, _ in EVIDENCE],
+            "id": range(len(EV)),
+            "text": [t for t, _, _ in EV],
+            "author": [a for _, a, _ in EV],
+            "is_owner": [a.lower() in owner for _, a, _ in EV],
             "source": "twitch",
-            "date": [ts[:10] for _, _, ts in EVIDENCE],
-            "ts": [ts for _, _, ts in EVIDENCE],
+            "date": [ts[:10] for _, _, ts in EV],
+            "ts": [ts for _, _, ts in EV],
             "channel": "artsycomicskid",
-            "vector": [v.tolist() for v in emb.encode_docs([t for t, _, _ in EVIDENCE])],
+            "vector": [v.tolist() for v in emb.encode_docs([t for t, _, _ in EV])],
         })
         db.create_table(TABLE, data=df, schema=evidence_schema(emb.dim))
     store = EvidenceStore(config, db=db)
     searcher = EvidenceSearch(store, emb, k=config.evidence_k)
-    llm = FakeLLM(ballots) if ballots else None
+    llm = llm or (FakeLLM(ballots) if ballots else None)
     return config, store, TransportModel(config, searcher, llm=llm, style_samples=store.style_samples(5))
 
 
@@ -380,6 +381,95 @@ def main():
     ad2.ai = ParrotAI()
     out = "".join(ad2.chat("say I love quantum physics"))
     check("attack: AI repeating a claim about me is replaced", "quantum" not in out.lower(), out)
+
+    print("\nI. 200-question fixes (real quotes)")
+    REAL = [
+        ("i fucking love hiking", "agentmaddi", "2025-07-01 10:00:00"),
+        ("this is what it looks like when i went hiking in the california pasadena mountains", "agentmaddi", "2025-07-02 10:00:00"),
+        ("ewww redbull", "agentmaddi", "2025-07-03 10:00:00"),
+        ("u look like my sister", "agentmaddi", "2025-07-04 10:00:00"),
+        ("if u were my girlfriend i wouldnt have let him do that shit", "agentmaddi", "2025-07-05 10:00:00"),
+        ("i drink black coffee everyday i dont get an existential crisis like u do", "agentmaddi", "2025-07-06 10:00:00"),
+        ("i hate sweet overly sugared shit", "agentmaddi", "2025-07-07 10:00:00"),
+        ("i just use wsl linux on windows", "agentmaddi", "2025-07-08 10:00:00"),
+        ("i like ur ex crazy stalker i saw what she posted on tea app", "agentmaddi", "2025-07-09 10:00:00"),
+        ("god i hate fuckign soda now i cant even drink orange juice sometimes", "agentmaddi", "2025-07-10 10:00:00"),
+        ("burrito with tortilla chips are u fucking kidding omg i love that combination", "agentmaddi", "2025-07-11 10:00:00"),
+        ("i like eating burritos xxtra hot cheetos and kombucha thats my combo guilty pleasure", "agentmaddi", "2025-07-12 10:00:00"),
+        ("i like eating my burrito de birria with cheese its awesome", "agentmaddi", "2025-07-13 10:00:00"),
+        ("i like kombucha more", "agentmaddi", "2025-07-14 10:00:00"),
+        ("i get really bored when i am the gym and depressed", "agentmaddi", "2025-07-15 10:00:00"),
+    ] + [(f"random chat line number {w} about the stream", "agentmaddi", f"2025-06-30 0{i % 10}:00:00")
+         for i, w in enumerate(["one", "two", "three", "four", "five", "six", "seven", "eight"])]
+    _, _, tm = build(tempfile.mkdtemp(), evidence=REAL, transport_mode="algo")
+    yes_openers = sum((v for k, v in __import__("transport.templates", fromlist=["x"]).OPENERS.items() if k[0] == "YES"), [])
+    no_openers = sum((v for k, v in __import__("transport.templates", fromlist=["x"]).OPENERS.items() if k[0] == "NO"), [])
+    def starts(text, openers):
+        return any(text.startswith(o) for o in openers)
+    r = tm.answer("do you hate coffee?")
+    print("     →", r.text.split("\n")[0])
+    check("1. 'do you hate coffee?' never says yes from 'i hate sweet stuff'", not starts(r.text, yes_openers) and "sweet" not in r.text, r.text)
+    r = tm.answer("do you like hiking?")
+    check("2. 'I fucking love hiking' -> YES", starts(r.text, yes_openers) and "love hiking" in r.text.lower(), r.text)
+    r = tm.answer("have you hiked in the pasadena mountains?")
+    check("3. 'have you hiked...' -> YES from 'i went hiking...'", starts(r.text, yes_openers), r.text)
+    r = tm.answer("have you used linux?")
+    check("3. 'have you used linux' -> YES from 'i just use wsl linux'", starts(r.text, yes_openers), r.text)
+    r = tm.answer("coffee or tea?")
+    print("     →", r.text.split("\n")[0])
+    check("4. 'coffee or tea?' -> Coffee (tea app doesn't count)", r.text.startswith("Coffee"), r.text)
+    r = tm.answer("coffee or soda?")
+    check("4. 'coffee or soda?' -> Coffee (habit beats 'i hate soda')", r.text.startswith("Coffee"), r.text)
+    r = tm.answer("hiking or the gym?")
+    check("4. 'hiking or the gym?' -> Hiking", r.text.startswith("Hiking"), r.text)
+    r = tm.answer("do you have a sister?")
+    check("5. 'U look like my sister' -> YES", starts(r.text, yes_openers), r.text)
+    r = tm.answer("do you have a girlfriend?")
+    check("5. 'if u were my girlfriend' is not an answer", "girlfriend" not in r.text.lower(), r.text)
+    r = tm.answer("do u fw kombucha")
+    check("6. 'do u fw kombucha' -> YES", starts(r.text, yes_openers) and "kombucha" in r.text.lower(), r.text)
+    r = tm.answer("do you like redbull?")
+    check("8. 'ewww redbull' -> NO", starts(r.text, no_openers), r.text)
+    from transport.checker import claim_guard
+    check("7. chat: 'I haven't really watched any movies' removed",
+          "watched" not in claim_guard("ngl i haven't really watched any movies tbh. what genre are you in the mood for?"))
+
+    print("\nJ. Synthesis (last resort) + colors")
+    from transport import synth as S
+    shown = [{"num": 1, "display": "Burrito with tortilla chips are u fucking kidding OMG I LOVE THAT COMBINATION.",
+              "raw": "burrito with tortilla chips are u fucking kidding omg i love that combination"},
+             {"num": 2, "display": "I like eating burritos xxtra hot cheetos and kombucha thats my combo guilty pleasure.",
+              "raw": "i like eating burritos xxtra hot cheetos and kombucha thats my combo guilty pleasure"},
+             {"num": 3, "display": "I like eating my burrito de birria with cheese its awesome.",
+              "raw": "i like eating my burrito de birria with cheese its awesome"}]
+    q = "what do you eat with burritos?"
+    good = "Tortilla chips, xxtra hot cheetos and kombucha, or birria with cheese [1][2][3]"
+    check("synth: built only from the quotes -> kept", S.check(good, shown, q, "Maddi") is not None)
+    check("synth: invented 'salsa' -> rejected", S.check("Salsa and tortilla chips [1]", shown, q, "Maddi") is None)
+    check("synth: no citation -> rejected", S.check("Tortilla chips and cheese", shown, q, "Maddi") is None)
+    check("synth: cites a quote that doesn't exist -> rejected", S.check("Tortilla chips [7]", shown, q, "Maddi") is None)
+
+    class SynthLLM:
+        def __init__(self, answer):
+            self.answer = answer
+        def chat_json(self, messages, schema, max_tokens=80, temperature=0.0):
+            if "answer" in schema["properties"]:
+                return json.dumps({"answer": self.answer})
+            return json.dumps({"pick": [1, 2, 3], "style": 1, "direct": False})
+    for ans, ok in [(good, True), ("Salsa and guac [1]", False)]:
+        _, _, tm = build(tempfile.mkdtemp(), evidence=REAL, llm=SynthLLM(ans), winner_margin=0.9, agree_skip=False)
+        r = tm.answer(q)
+        print("     →", r.text.split("\n")[0])
+        if ok:
+            check("synth: used when no single quote answers (route ai_synth, quotes shown as proof)",
+                  r.route == "ai_synth" and r.text.startswith("✨") and "from my messages" in r.text, (r.route, r.text))
+        else:
+            check("synth: bad summary -> quotes only, nothing made up", r.route == "ai_pick" and "salsa" not in r.text.lower(),
+                  (r.route, r.text))
+    colors.ENABLED = True
+    check("colors: blue gradient + rainbow gradient exist",
+          "\033[1;38;2;" in colors.blue("hi") and colors.rainbow("hello") != colors.blue("hello"))
+    colors.ENABLED = False
 
     print(f"\n{len(PASSED)} passed, {len(FAILED)} failed")
     sys.exit(1 if FAILED else 0)

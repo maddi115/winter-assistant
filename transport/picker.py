@@ -23,8 +23,9 @@ SCHEMA_STYLE = {
     "properties": {
         "pick": {"type": "array", "items": {"type": "integer"}},
         "style": {"type": "integer"},
+        "direct": {"type": "boolean"},
     },
-    "required": ["pick", "style"],
+    "required": ["pick", "style", "direct"],
 }
 
 
@@ -39,7 +40,9 @@ def build_messages(question, vessels, persona, agent_label, style, max_words, wr
             f"Task 1: pick the numbers where {persona} is talking about the thing in the question. "
             f"If none of them answer it, return an empty list.\n"
             f"Task 2: pick the opener number that fits best: {menu}\n"
-            f'Reply ONLY as JSON: {{"pick": [numbers], "style": number}}'
+            f"Task 3: direct = true if ONE of your picked lines answers the question by itself, "
+            f"false if the answer is spread over several lines.\n"
+            f'Reply ONLY as JSON: {{"pick": [numbers], "style": number, "direct": true/false}}'
         )
         listing = "\n".join(f"[{v['num']}] {v['display']}" + (f"\n    (context: {v['context']})" if v.get("context") else "")
                              for v in vessels)
@@ -65,7 +68,7 @@ def vote(llm, messages, n_vessels: int, votes: int, styles=None) -> Dict:
     """Returns {'status': ok|none|split|error, 'picks': [...], 'openers': [...], 'agreement': 0..1, 'raw': [...]}."""
     votes = max(1, int(votes))
     temperature = 0.0 if votes == 1 else 0.7
-    ballots, openers, raw = [], [], []
+    ballots, openers, raw, directs = [], [], [], []
     for _ in range(votes):
         try:
             reply = llm.chat_json(messages, SCHEMA_STYLE if styles else SCHEMA,
@@ -78,9 +81,12 @@ def vote(llm, messages, n_vessels: int, votes: int, styles=None) -> Dict:
         picks, opener = parse_reply(reply)
         if styles:   # opener chosen by number from the menu
             try:
-                n = int(json.loads(reply).get("style", 0))
+                data = json.loads(reply)
+                n = int(data.get("style", 0))
+                directs.append(bool(data.get("direct", True)))
             except Exception:
                 n = 0
+                directs.append(True)
             opener = styles[n - 1] if 1 <= n <= len(styles) else ""
         picks = clean_picks(picks, n_vessels)
         ballots.append(tuple(sorted(picks)))
@@ -97,5 +103,6 @@ def vote(llm, messages, n_vessels: int, votes: int, styles=None) -> Dict:
         status = "ok"
     # openers from ballots that agree with the majority come first
     ordered = [o for b, o in openers if list(b) == majority] + [o for b, o in openers if list(b) != majority]
+    needs_synth = bool(directs) and sum(1 for d in directs if not d) > len(directs) / 2
     return {"status": status, "picks": majority, "openers": [o for o in ordered if o],
-            "agreement": agreement, "raw": raw}
+            "agreement": agreement, "raw": raw, "needs_synth": needs_synth}

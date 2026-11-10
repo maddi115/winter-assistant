@@ -31,7 +31,7 @@ def thread_block(num: int, v: Dict, lines, highlight: bool) -> str:
 
 
 def render(opener: str, vessels: List[Dict], qtype: str, changed: bool = False,
-           highlight: bool = False, threads: Dict = None) -> str:
+           highlight: bool = False, threads: Dict = None, synth: str = None) -> str:
     """highlight=True: your quoted words in neon green (terminal only)."""
     paint = colors.green if highlight else (lambda s: s)
     parts = []
@@ -53,4 +53,9 @@ def render(opener: str, vessels: List[Dict], qtype: str, changed: bool = False,
         cites = colors.dim(cites)
     blocks = [thread_block(v["num"], v, threads[v["num"]], highlight) for v in vessels if v["num"] in threads]
     tail = "\n".join(x for x in [cites] + blocks if x)
+    if synth:
+        # the AI's summary of my words (blue), with the real quotes right under it as proof
+        head = "✨ " + (colors.blue(synth) if highlight else synth)
+        proof = "   ↳ from my messages: " + body
+        return head + "\n" + proof + ("\n" + tail if tail else "")
     return f"{opener} {body}".strip() + ("\n" + tail if tail else "")

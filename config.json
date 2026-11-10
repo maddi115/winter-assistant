@@ -58,5 +58,7 @@
     "where do you work",
     "where u work",
     "social security"
-  ]
+  ],
+  "synthesis": true,
+  "synth_max_words": 25
 }

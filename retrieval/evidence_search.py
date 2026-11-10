@@ -19,6 +19,7 @@ FIRST_PERSON = {"i", "im", "my", "me", "mine", "ive", "id", "ill", "myself", "we
 # "favorite top movies drive the hateful eight" is about me even without "I"
 # (but not "his favorite waitress")
 import re as _re
+REACTION = _re.compile(r"^\W*(e+w+|yuck|yucky|gross|nasty|mm+|yum+|yummy|bleh|blech)\b", _re.I)
 FAVORITE = _re.compile(r"(?<!\bhis )(?<!\bher )(?<!\btheir )(?<!\byour )(?<!\bur )\b(fav|fave|favorite|favourite|favs)\b", _re.I)
 
 
@@ -74,7 +75,8 @@ class EvidenceSearch:
             c["kw"] = keyword_score(terms, row["text"], weights)
             c["has_anchor"] = anchor is not None and anchor in toks
             c["anchor"] = anchor
-            c["first_person"] = bool(FIRST_PERSON & set(tokenize(row["text"]))) or bool(FAVORITE.search(row["text"]))
+            c["first_person"] = (bool(FIRST_PERSON & set(tokenize(row["text"]))) or bool(FAVORITE.search(row["text"]))
+                                 or bool(REACTION.search(row["text"])))      # "ewww redbull"
             c["is_question"] = row["text"].strip().endswith("?")
             c["both"] = len(c["found_by"]) == 2
             c["combo"] = (0.6 * c["sem"] + 0.4 * c["kw"]

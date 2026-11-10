@@ -94,7 +94,8 @@ class TerminalUI:
         title_display = self.conversation_title if self.conversation_title else "new chat"
         print(f"🚀 {self.label} · {self.persona}'s AI - {title_display}")
         from core import colors
-        print(f"   {colors.pink('pink')} = from memory vessels   {colors.green('green')} = {self.persona}'s own words")
+        print(f"   {colors.pink('pink')} = memory vessels   {colors.green('green')} = {self.persona}'s own words   "
+              f"{colors.blue('blue')} = AI summary of those words   {colors.rainbow('rainbow')} = AI's own words")
         print("="*60)
         print("\nCommands: history | search <query> | quit\n")
 

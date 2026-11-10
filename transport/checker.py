@@ -33,6 +33,7 @@ CLAIMS = [r"\bi (really |kinda |lowkey |honestly |actually )?(prefer|adore|enjoy
           r"\bi (used to|always|usually|grew up|remember|once)\b", r"\bi (went|ate|played|watched|had|was)\b",
           r"\bi (might|may|probably|must|could)( have| of)?\b", r"\bi'?ve (been|gone|seen|tried|done|visited|had)\b",
           r"\bi (have|had) (been|gone|seen|tried|done|visited)\b", r"\byeah,? i\b", r"\bi (did|do)\b",
+          r"\bi (have ?n'?t|havent|haven't|never|dont|don't) (really |even |ever )?(watched|seen|been|played|tried|done|used|heard|owned|had)\b",
           r"\byou said\b", r"\bas an ai\b"]
 ADMITS = r"(never (really )?(talked|said|mentioned|brought|spoke)|\bidk\b|don'?t (really )?know|no idea|not sure|haven'?t (really )?(talked|said|mentioned))"
 
