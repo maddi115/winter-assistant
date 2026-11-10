@@ -232,9 +232,9 @@ def decide(vessels: List[Dict], flip: bool = False, verb=None,
     neg = [v for v, p in scored if p < 0]
     changed = bool(pos and neg)
     if changed:
-        newest = max(pos + neg, key=lambda v: v.get("date") or "")
+        newest = max(pos + neg, key=lambda v: v.get("ts") or v.get("date") or "")
         verdict = "YES" if newest in pos else "NO"
-        ordered = sorted(pos + neg, key=lambda v: v.get("date") or "", reverse=True)
+        ordered = sorted(pos + neg, key=lambda v: v.get("ts") or v.get("date") or "", reverse=True)
     elif pos:
         verdict, ordered = "YES", pos      # only quotes that back the verdict
     elif neg:

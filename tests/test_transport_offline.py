@@ -443,6 +443,12 @@ def main():
     r = tm.answer("do you like plain water?")
     check("'plain water' is about water, not 'plain coffee'", "plain coffee" not in r.text.lower(), r.text)
 
+    from transport.verdict import decide
+    v, changed, ordered = decide([
+        {"text": "i got fired for smoking weed", "date": "2025-09-03", "ts": "2025-09-03 21:43:00"},
+        {"text": "i havent smoked weed ever since", "date": "2025-09-03", "ts": "2025-09-03 21:45:00"}], verb=["smoke"], objects=["weed"])
+    check("newest wins by TIME, not just date (same day)", changed and v == "NO" and "havent" in ordered[0]["text"], (v, ordered))
+
     print("\nJ. Synthesis (last resort) + colors")
     from transport import synth as S
     shown = [{"num": 1, "display": "Burrito with tortilla chips are u fucking kidding OMG I LOVE THAT COMBINATION.",
