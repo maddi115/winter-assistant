@@ -111,5 +111,18 @@ chatters (twitch/chatters.py) - saved in twitch_chatters.json on your PC only:
    the AI knows it quietly ("don't recite it"); anyone can type !forgetme
 ```
 
+**Home vs guest.** The bot's own channel is HOME (chats freely). Any other channel in
+`twitch_channels` is GUEST - a polite regular: answers @agentwinterrr / "agentwinter" / replies to it,
+joins in rarely (8%, 5 min apart, and the AI must have something good or it skips), never starts
+conversations, never saves chatters to disk, 10s between messages, short replies in "Replying to @x".
+If Twitch drops 3 messages in a row (slow mode, AutoMod) it pauses there for 5 minutes.
+Practice: `python tools/twitch_bot.py --dry-run --guest`
+
+**Not replying to everything.** Emote-only messages (ICANT, KEKW, omg, 😹) are reactions - ignored unless
+they're aimed at me. At home in a 1-on-1 the AI may answer "skip"; direct questions and tags always get an
+answer. Fast chat (20+/min) -> I join in less; flying chat (60+/min) -> only when talked to.
+Never more than 3 messages per 30 seconds. The AI gets a cheat sheet for emotes it sees (ICANT = dying laughing).
+Emojis I may use are listed in `memory/personality.md` (😹 🥀) - optional, at most one per message.
+
 `memory/personality.md` is how I talk. Edit it any time - it reloads by itself.
 Facts about me never come from that file, only from my real messages.

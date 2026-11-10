@@ -187,10 +187,10 @@ def say(user, text, **kw):
 
 check("1-on-1: answers a plain message", say("viewer1", "yo") == ("yo", "1-on-1"), say("viewer1", "yo"))
 say("bob", "this stream is fire")
-q, why = say("viewer1", "lol fr")
+q, why = say("viewer1", "lol that boss fight was crazy")
 check("busy chat: stays out of it", q is None and why == "letting them talk", why)
-check("busy chat: answers when I'm named", say("bob", "winter what do u think") [1] == "said my name")
-check("busy chat: answers meow", say("bob", "meow")[1] == "said my name")
+check("busy chat: answers when I'm named", say("bob", "winter what do u think") == ("what do u think", "said my name"))
+check("busy chat: answers meow", say("bob", "meow")[1] == "meow")
 check("busy chat: @me always works", say("bob", "@agentwinterrr yo", mentions=["agentwinterrr"])[1] == "direct")
 check("never jumps into replies to others", say("bob", "true", reply_to="viewer1")[0] is None)
 m = msg("anyone play valorant?", user="cara")
@@ -312,6 +312,156 @@ from core.personality import parse
 pp = parse("## vibe\nchill\n# comment\n## never say\nGreat question")
 check("personality file parses (comments skipped)", pp.sections["vibe"] == ["chill"] and pp.never == ["great question"])
 check("missing personality file is fine", __import__("core.personality", fromlist=["x"]).load("nope.md").prompt == "")
+
+print("\nM. Guest channel (someone else's stream) - polite regular")
+gc = [10000.0]
+g = Room("scentlessoppa", clock=lambda: gc[0], guest=True)
+cg = Config()
+
+
+def gsay(user, text, rng=0.99, **kw):
+    m = msg(text, user=user, **kw)
+    g.add(m.user, m.name, m.text)
+    gc[0] += 3
+    return decide(m, "agentwinterrr", cg, g, rng=lambda: rng)
+
+
+check("no 1-on-1 rule: plain message from one person -> quiet", gsay("viewer1", "yo chat")[0] is None)
+check("'winter' alone isn't my name there", gsay("viewer1", "winter break soon")[0] is None)
+check("@agentwinterrr -> answers", gsay("viewer2", "@agentwinterrr u like burritos", mentions=["agentwinterrr"])[1] == "direct")
+check("agentwinter by name -> answers", gsay("viewer2", "agentwinter what do u think")[1] == "said my name")
+cg2 = Config(agent_label="Maddi's AI")
+check("my name is taken out of the question", decide(msg("agentwinter, whats ur name", user="viewer9"),
+      "agentwinterrr", cg2, Room("x", guest=True))[0] == "whats ur name")
+check("'agentwinter' counts even with an old agent_label", decide(msg("agentwinter do you smoke weed?", user="viewer9"),
+      "agentwinterrr", cg2, Room("x", guest=True), rng=lambda: 0.99)[1] == "said my name")
+check("reply to me -> answers", gsay("viewer2", "fr?", reply_to="agentwinterrr")[1] == "direct")
+q, why = gsay("viewer3", "anyone tried the new map", rng=0.0)
+check("joining in only by chance", why == "chimed in", why)
+g.last_chime = gc[0]
+check("then not again for 5 min", gsay("viewer3", "its so good", rng=0.0)[1] == "chimed in recently")
+check("meow in their chat is rate-limited too", gsay("viewer4", "meow")[1] == "meowed recently")
+gc[0] += cg.twitch_guest_chime_gap + 1
+check("meow after the gap -> meows back", gsay("viewer4", "meow")[1] == "meow")
+check("guest join-in chance is lower than home", cg.twitch_guest_chime_chance < cg.twitch_chime_chance)
+stg = SelfTalk(cg, clock=lambda: gc[0])
+for u in ["viewer1", "viewer2", "viewer3"]:
+    g.add(u, u, "talking")
+gc[0] += 9999
+check("never breaks silence in their chat", not stg.silence(g))
+check("never welcomes people back in their chat", not stg.welcome(g, "viewer1", 99999, already_answering=False))
+
+print("\nN. Reply polish")
+from twitch.brain import repeats
+check("near-duplicate of my last line is caught", repeats("w back bro missed u lol", ["w back bro, missed u lol"]))
+check("different line is fine", not repeats("nah l4d2 is mid", ["w back bro, missed u lol"]))
+c5 = Config(); c5.owner_handles = []
+SEE.out = "yo welcome back bro, missed you a lot man, it's been forever since you were here in the chat lol"
+gr = Room("scentlessoppa", guest=True)
+gr.add("viewer1", "Viewer1", "yo")
+b5 = brain_mod.Brain(c5, CtxAdapter, ai=SEE, base_context="BASE")
+out5, _ = b5.reply("viewer1", "Viewer1", "yo", gr)
+check("guest AI lines are <= 15 words", out5 is not None and len(out5.split()) <= 15, out5)
+check("prompt says only greet as 'back' if notes say so", "Only say someone is 'back'" in SEE.prompts[-1])
+gr.add("agentwinterrr", "agentwinterrr", out5, is_bot=True)
+check("won't say the same thing twice", b5.reply("viewer1", "Viewer1", "yo again", gr)[0] is None)
+
+
+class LongQuote(FakeAdapter):
+    def chat(self, q):
+        self.last_route = "algo"
+        yield "For sure. " + "I like burritos with chips and salsa and cheese. " * 8 + "[1]\n   [1] twitch\n"
+
+
+bq5 = brain_mod.Brain(c5, LongQuote)
+long_q, _ = bq5.reply("viewer1", "V", "do you like burritos", gr)
+check("guest quotes <= 200 chars, cut at a sentence", len(long_q) <= 200 and long_q.endswith("."), (len(long_q), long_q[-20:]))
+home_q, _ = bq5.reply("viewer1", "V", "do you like burritos", Room("agentwinterrr"))
+check("home quotes can be longer", len(home_q) > 200)
+SEE.out = "skip"
+check("joining in: AI says skip -> nothing sent", b5.self_line(gr, "chime", "Viewer3", None, "anyone tried the new map") is None)
+SEE.out = "nah the new map is actually fire"
+check("joining in: real line", b5.self_line(gr, "chime", "Viewer3", None, "anyone tried the new map") == "nah the new map is actually fire")
+SEE.out = "nah the new map lowkey slaps"
+check("banned phrase -> not sent at all", b5.self_line(gr, "chime", "Viewer3", None, "anyone tried the new map") is None)
+check("chime prompt shows the newest message",
+      "the newest message is from Viewer3" in __import__("twitch.brain", fromlist=["x"]).SELF_ASK["chime"].format(name="Viewer3", text="x", note=""))
+
+print("\nO. Selective + emotes + busy chat")
+from twitch.emotes import is_reaction, cheat_sheet, fix_case
+for t in ["ICANT", "KEKW KEKW", "omg", "😹😹", "lol fr", "W"]:
+    check(f"'{t}' is just a reaction", is_reaction(t))
+for t in ["what a gentlemen", "do you like burritos?", "tacos tonight?"]:
+    check(f"'{t}' is a real message", not is_reaction(t))
+check("cheat sheet explains emotes", cheat_sheet(["ICANT", "lol KEKW"]) == "ICANT = dying laughing; KEKW = laughing hard")
+check("emote names keep their capitals", fix_case("kekw no way") == "KEKW no way")
+ro = Room("h", clock=lambda: oc[0]) if (oc := [500.0]) else None
+co = Config()
+
+
+def osay(user, text, rng=0.99, **kw):
+    mm = msg(text, user=user, **kw)
+    ro.add(mm.user, mm.name, mm.text)
+    return decide(mm, "winterrs0", co, ro, rng=lambda: rng)
+
+
+check("home: 'ICANT' -> quiet", osay("viewer1", "ICANT") == (None, "just a reaction"))
+check("home: '@winterrs0 ICANT' -> still answers", osay("viewer1", "@winterrs0 ICANT", mentions=["winterrs0"])[1] == "direct")
+check("home 1-on-1: a real message -> answer (AI may skip)", osay("viewer1", "what are you playing tonight")[1] == "1-on-1")
+ro.last_bot = oc[0]; oc[0] += 2
+check("home 1-on-1: right after my reply -> let it breathe", osay("viewer1", "that sounds fun ngl")[1] == "just replied")
+oc[0] += 10
+check("home 1-on-1: tiny message usually passes", osay("viewer1", "tacos", rng=0.1) == (None, "tiny message"))
+check("home 1-on-1: tiny question still answered", osay("viewer1", "tacos?", rng=0.1)[1] == "1-on-1")
+check("winterrs0 by name counts", osay("viewer1", "winterrs0 whats ur name") == ("whats ur name", "said my name"))
+rf = Room("busy", clock=lambda: oc[0])
+for k in range(70):
+    rf.add(f"u{k % 9}", "u", "chat chat")
+check("chat flying (70/min) -> only when talked to",
+      decide(msg("who is winning", user="v"), "winterrs0", co, rf, rng=lambda: 0.0)[1] == "chat is flying")
+rb = Room("busy2", clock=lambda: oc[0])
+for k in range(30):
+    rb.add(f"u{k % 6}", "u", "chat chat")
+check("busy chat (30/min) -> joins in less", decide(msg("who is winning", user="v"), "winterrs0", co, rb,
+      rng=lambda: co.twitch_chime_chance * 0.9)[1] == "letting them talk")
+from twitch.humanize import humanize
+E = ["😹", "🥀", "KEKW", "LUL"]
+check("at most one emoji, only mine", humanize("LMAO that is wild 😹😹🔥", emojis=E) == "lmao that is wild 😹")
+check("emojis I don't use are dropped", humanize("nah 💀", emojis=E) == "nah")
+check("emotes I don't use are dropped", humanize("kekw no way PogChamp", emojis=E) == "KEKW no way")
+check("'sis' banned but 'basis' fine", humanize("good basis tho", never=["sis"]) == "good basis tho"
+      and humanize("sis what", never=["sis"]) == "")
+from core.personality import load as ld
+P = ld("memory/personality.md")
+check("personality has 😹 🥀 as optional emojis", "😹" in P.emojis and "🥀" in P.emojis and "optional" in P.prompt)
+check("personality bans the cringe list", all(b in P.never for b in ["sis", "good vibes", "same energy", "what even is"]))
+
+
+class SkipAI(SeeAI):
+    def generate(self, q, ctx):
+        from core.ai_engine import persona_prompt
+        self.prompts.append(persona_prompt(bs.c, ""))
+        yield self.out
+
+
+SK = SkipAI("skip")
+
+
+class SkipAdapter(FakeAdapter):
+    def chat(self, q):
+        self.last_route = "general"
+        yield from SK.generate(q, [])
+
+
+bs = brain_mod.Brain(Config(owner_handles=[]), SkipAdapter, ai=SK, base_context="BASE")
+rs = Room("h"); rs.add("viewer1", "Viewer1", "tacos")
+check("1-on-1: AI may say skip -> nothing sent", bs.reply("viewer1", "Viewer1", "tacos", rs, may_skip=True)[0] is None)
+check("...and the prompt allowed it", "reply exactly: skip" in SK.prompts[-1])
+bs.reply("viewer1", "Viewer1", "do you like burritos", rs, may_skip=False)
+check("direct questions never get the skip option", "reply exactly: skip" not in SK.prompts[-1])
+rs.add("viewer2", "Viewer2", "ICANT")
+bs.reply("viewer1", "Viewer1", "lol", rs)
+check("prompt explains emotes seen in chat", "ICANT = dying laughing" in SK.prompts[-1])
 
 print("\nF. Login (device code flow, faked)")
 calls = []

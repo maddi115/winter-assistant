@@ -91,6 +91,23 @@ class Config:
     # remembering chatters (twitch/chatters.py) - saved on your PC only, !forgetme wipes someone
     twitch_remember_chatters: bool = True
     twitch_chatters_file: str = "twitch_chatters.json"
+    # GUEST channels = any channel that isn't the bot's own. Acts like a polite regular:
+    # answers when talked to, rarely joins in (only with something good), never starts
+    # conversations, never saves chatters to disk.
+    twitch_guest_chime_chance: float = 0.08   # chance to consider joining in on a message
+    twitch_guest_chime_gap: int = 300         # at least this many seconds between joining in
+    twitch_guest_min_gap: int = 10            # seconds between ANY two bot messages in a guest channel
+    twitch_guest_max_words: int = 15          # AI lines
+    twitch_guest_quote_chars: int = 200       # quotes from my messages
+    twitch_guest_reply_thread: bool = True    # "Replying to @x" so it's clear who I'm answering
+    # not replying to everything (home channel)
+    twitch_home_reply_gap: int = 6        # 1-on-1: a message this soon after my last one isn't answered unless it's for me
+    twitch_noise_skip: float = 0.7        # 1-on-1: chance to let a tiny message ("tacos", "yo") pass without a reply
+    # busy chat (any channel)
+    twitch_busy_mpm: int = 20             # messages per minute where chat counts as busy -> I join in much less
+    twitch_flying_mpm: int = 60           # chat this fast -> I only answer when someone talks to me
+    twitch_burst_max: int = 3             # at most this many bot messages...
+    twitch_burst_window: int = 30         # ...in this many seconds, all channels together
     twitch_max_reply_tokens: int = 120
     twitch_ignore_users: List[str] = field(default_factory=lambda: [
         "nightbot", "streamelements", "streamlabs", "moobot", "fossabot", "wizebot", "soundalerts", "sery_bot"])

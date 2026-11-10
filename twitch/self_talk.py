@@ -5,6 +5,8 @@ Two reasons to start talking:
   welcome   a regular comes back after a while, and chat is busy so I wasn't going to
             answer them anyway                      -> a quick "yo welcome back" (sometimes)
 
+Never in a guest channel (someone else's stream).
+
 Hard limits so it never gets chatty:
   * at most twitch_self_max_per_hour self-started messages per hour, per channel
   * at least twitch_self_gap seconds between them
@@ -27,8 +29,8 @@ class SelfTalk:
 
     def allowed(self, room) -> bool:
         c = self.c
-        if not c.twitch_self_talk:
-            return False
+        if not c.twitch_self_talk or getattr(room, "guest", False):
+            return False                   # never start conversations in someone else's chat
         sent = self._recent(room.channel)
         if len(sent) >= c.twitch_self_max_per_hour:
             return False

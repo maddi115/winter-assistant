@@ -5,6 +5,7 @@
   * nothing is saved to your own Winter history; strangers never see your private Winter chats
   * personality comes from memory/personality.md
 """
+import re
 from collections import OrderedDict
 
 from core import colors
@@ -17,10 +18,30 @@ AI_ROUTES = {"general", "ai_no_evidence"}
 SELF_ASK = {
     "silence": ("(chat went quiet. say ONE short casual thing to get it going again, about what people were "
                 "just talking about. don't say hi, don't ask if anyone's there. if nothing fits, reply exactly: skip)"),
+    # joining in on chat I wasn't asked into: the AI decides if it actually has something good
+    "chime": ("(you're reading chat, nobody asked you anything. the newest message is from {name}: "
+              "\"{text}\". only if you have something genuinely good to add - funny, relatable, or a real "
+              "answer to what people are talking about - write ONE short message like a regular would. "
+              "don't greet anyone, don't ask what's up, don't change the subject. "
+              "if you'd just be filling space, reply exactly: skip)"),
     "welcome": ("({name} just came back to chat. {note} say a quick casual hi to them by name, like a friend, "
                 "a few words. only mention what they usually talk about if it fits naturally. "
                 "if it'd be weird, reply exactly: skip)"),
 }
+
+
+def is_skip(text) -> bool:
+    return re.sub(r"[^a-z]", "", (text or "").lower())[:4] == "skip" and len((text or "").split()) <= 3
+
+
+def repeats(line, previous, limit=0.6) -> bool:
+    """True if this line is (nearly) something I already said."""
+    words = set(re.findall(r"[a-z0-9']+", line.lower()))
+    for p in previous:
+        other = set(re.findall(r"[a-z0-9']+", p.lower()))
+        if words and other and len(words & other) / len(words | other) >= limit:
+            return True
+    return False
 
 
 class ChatterMemory:
@@ -63,7 +84,7 @@ class Brain:
             self.chatters.popitem(last=False)
         return a
 
-    def _set_room(self, room, before=None, talking_to=None, note=None):
+    def _set_room(self, room, before=None, talking_to=None, note=None, may_skip=False, current=""):
         """The chat AI gets the recent chat + what I remember about this person
         as background (one answer at a time, so this is safe)."""
         ctx = self.base
@@ -74,15 +95,31 @@ class Brain:
             ctx += f"\nYou're answering {talking_to}. Don't repeat anything 'you' already said."
         if note:
             ctx += f"\nWhat you remember about them (don't recite it, just know it): {note}"
+        ctx += ("\nOnly say someone is 'back' or that you 'missed' them if the notes say they came back. "
+                "Don't copy lines from the chat above.")
+        from twitch.emotes import cheat_sheet
+        lines = [l.text for l in room.recent(self.c.twitch_room_lines)] if room is not None else []
+        sheet = cheat_sheet(lines + [current])
+        if sheet:
+            ctx += f"\nTwitch emotes in chat are reactions, not words: {sheet}."
+        if may_skip:
+            ctx += ("\nNot every message needs an answer. If this one doesn't (filler, a random word, "
+                    "nothing to add), reply exactly: skip")
         self.c.chat_context = ctx
 
-    def _polish(self, line, route):
+    def _polish(self, line, route, room=None):
+        guest = getattr(room, "guest", False)
         if line and self.c.twitch_humanize and route in AI_ROUTES:
             # the AI's own words only - Maddi's real quotes are never touched
-            line = humanize(line, max_words=self.c.twitch_max_words, never=self.personality.never)
+            words = self.c.twitch_guest_max_words if guest else self.c.twitch_max_words
+            line = humanize(line, max_words=words, never=self.personality.never, emojis=self.personality.emojis)
+        if line and is_skip(line):
+            return None                      # the AI decided this didn't need an answer
+        if line and room is not None and repeats(line, room.bot_lines(5)):
+            return None                      # saying the same thing twice reads like a bot
         return line or None
 
-    def reply(self, user, name, question, room=None, line=None, note=None):
+    def reply(self, user, name, question, room=None, line=None, note=None, may_skip=False):
         """-> (chat line or None, route)"""
         a = self._adapter(user)
         is_owner = user in {h.lower() for h in self.c.owner_handles}
@@ -91,28 +128,30 @@ class Brain:
             # "what's my name" from a stranger is about THEM, not Maddi
             line_ = f"ur {name} lol" if key == "USER_NAME" else "idk that one's on u lol"
             return line_, "stranger_self"
-        self._set_room(room, before=line, talking_to=name, note=note)
+        self._set_room(room, before=line, talking_to=name, note=note, may_skip=may_skip, current=question)
         out = colors.strip("".join(a.chat(question)))
-        text = chat_line(out, self.c.twitch_max_chars, self.c.twitch_citations,
-                         self.c.twitch_block_words, self.c.twitch_max_quotes)
-        return self._polish(text, a.last_route), a.last_route
+        guest = getattr(room, "guest", False)
+        limit = self.c.twitch_guest_quote_chars if guest and a.last_route not in AI_ROUTES else self.c.twitch_max_chars
+        text = chat_line(out, limit, self.c.twitch_citations, self.c.twitch_block_words, self.c.twitch_max_quotes)
+        return self._polish(text, a.last_route, room), a.last_route
 
-    def self_line(self, room, kind="silence", name=None, note=None):
-        """Starting a conversation on my own (see twitch/self_talk.py). -> one line or None."""
+    def self_line(self, room, kind="silence", name=None, note=None, text=None):
+        """Talking without being asked: silence / welcome (self_talk.py) or chime (talk.py).
+        -> one line, or None when the AI has nothing good to say."""
         if self.ai is None or not hasattr(self.ai, "generate"):
             return None
-        ask = SELF_ASK[kind].format(name=name or "someone", note=note or "")
-        self._set_room(room)
+        ask = SELF_ASK[kind].format(name=name or "someone", note=note or "", text=(text or "")[:200])
+        self._set_room(room, current=text or "")
         try:
             raw = "".join(self.ai.generate(ask, []))
         except Exception:
             return None
         from transport.checker import persona_guard, claim_guard
         raw = claim_guard(persona_guard(raw, ask, self.c.persona_name) or "")
-        if not raw or raw.strip(" .\"'").lower().startswith("skip"):
+        if not raw or is_skip(raw):
             return None
-        text = chat_line(raw, self.c.twitch_max_chars, False, self.c.twitch_block_words)
-        return self._polish(text, "general")
+        line = chat_line(raw, self.c.twitch_max_chars, False, self.c.twitch_block_words)
+        return self._polish(line, "general", room)
 
     def break_silence(self, room):
         return self.self_line(room, "silence")

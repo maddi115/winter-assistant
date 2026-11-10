@@ -26,12 +26,41 @@ def drop_banned(t: str, never) -> str:
     """Remove any sentence that contains a 'never say' phrase."""
     if not never:
         return t
+    from core.personality import said
     sents = re.split(r"(?<=[.!?])\s+", t)
-    keep = [x for x in sents if not any(n in x.lower() for n in never)]
+    keep = [x for x in sents if not any(said(n, x) for n in never)]
     return " ".join(keep).strip(" ,")
 
 
-def humanize(s: str, keep_emoji: bool = False, max_words: int = 0, never=()) -> str:
+def one_flavor(t: str, allowed) -> str:
+    """Emojis / emotes are optional seasoning: only the ones I use, at most ONE per message."""
+    from twitch.emotes import found
+    allowed = list(allowed or [])
+    allowed_emoji = [a for a in allowed if EMOJI.fullmatch(a)]
+    allowed_emotes = {a.lower() for a in allowed if not EMOJI.fullmatch(a)}
+    kept = []
+
+    def emoji(m):
+        piece = m.group(0)
+        for a in allowed_emoji:
+            if a in piece and not kept:
+                kept.append(a)
+                return " " + a
+        return ""
+    t = EMOJI.sub(emoji, t)
+    words = []
+    for w in t.split():
+        bare = re.sub(r"[^A-Za-z0-9]", "", w)
+        if found(bare):
+            if bare.lower() in allowed_emotes and not kept:
+                kept.append(bare)
+                words.append(w)
+            continue                          # an emote I don't use, or a 2nd one -> drop
+        words.append(w)
+    return " ".join(words)
+
+
+def humanize(s: str, keep_emoji: bool = False, max_words: int = 0, never=(), emojis=()) -> str:
     if not s:
         return s
     s = drop_banned(s, never)
@@ -39,7 +68,7 @@ def humanize(s: str, keep_emoji: bool = False, max_words: int = 0, never=()) -> 
         return ""
     if max_words:
         s = shorten(s, max_words)
-    t = s if keep_emoji else EMOJI.sub("", s)
+    t = s if keep_emoji else one_flavor(s, emojis)
     t = OPENER.sub("hey ", t)
     for _ in range(2):                       # "hey bro! what's up?" -> "hey bro"
         stripped = FILLER_END.sub("", t)
@@ -50,5 +79,6 @@ def humanize(s: str, keep_emoji: bool = False, max_words: int = 0, never=()) -> 
     t = re.sub(r"\s+", " ", t).strip()
     t = re.sub(r"[.]$", "", t)               # no period at the end of a chat line
     t = t.lower()
-    t = re.sub(r"\bi\b", "i", t)
+    from twitch.emotes import fix_case
+    t = fix_case(t)                          # kekw -> KEKW (emote names are case-sensitive)
     return t.strip(" ,") or s.strip().lower()
