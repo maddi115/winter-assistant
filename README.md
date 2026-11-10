@@ -14,8 +14,11 @@ The AI never writes those answers. It only picks numbers.
    3. **Stasis gate**: if the results don't agree → "idk" in your voice.
    4. **Clear winner?** → answer with no AI.
    5. **Close call?** → the AI picks numbers (`[1,3]`), 3 times. Majority wins. If the votes split → "idk".
-   6. Rules decide yes / no / unclear. Newest message wins if you changed your mind.
+   6. Rules decide yes / no / unclear: feelings ("I love it"), actions ("I fell off my bike"),
+      "do you have X" needs "my X", "X or Y?" compares both. Newest message wins if you changed your mind.
    7. Your exact words are pasted in, with citations like `[1] twitch · 2025-06-12`.
+   8. **Threads:** the messages right before and after each quote (same channel, within 3 minutes)
+      are shown under it, so short quotes like "and my family too" make sense.
 3. **Anything else** (small talk, how-to, ideas) → the AI chats normally, as you.
 
 ## Quick start

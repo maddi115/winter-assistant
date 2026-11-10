@@ -21,8 +21,8 @@
   "votes": 3,
   "evidence_k": 20,
   "vessels_k": 5,
-  "stability_min": 0.6,
-  "confidence_min": 0.45,
+  "stability_min": 0.7,
+  "confidence_min": 0.5,
   "winner_margin": 0.1,
   "opener_max_words": 10,
   "write_max_words": 25,
@@ -31,5 +31,8 @@
   "agree_skip": true,
   "idk_mode": "ai",
   "style_words": "short, mostly lowercase, casual, chill, uses slang like lol, bro, tbh, ngl, fr",
-  "stream_chat": false
+  "stream_chat": false,
+  "threads": true,
+  "thread_window_sec": 180,
+  "thread_max": 2
 }

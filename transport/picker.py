@@ -41,7 +41,8 @@ def build_messages(question, vessels, persona, agent_label, style, max_words, wr
             f"Task 2: pick the opener number that fits best: {menu}\n"
             f'Reply ONLY as JSON: {{"pick": [numbers], "style": number}}'
         )
-        listing = "\n".join(f"[{v['num']}] {v['display']}" for v in vessels)
+        listing = "\n".join(f"[{v['num']}] {v['display']}" + (f"\n    (context: {v['context']})" if v.get("context") else "")
+                             for v in vessels)
         return [{"role": "system", "content": system},
                 {"role": "user", "content": f"Question: {question}\n\n{listing}"}]
     opener_rule = f"a short line (max {max_words} words) that leads into the quotes"

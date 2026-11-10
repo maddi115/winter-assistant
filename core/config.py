@@ -46,6 +46,9 @@ class Config:
     idk_mode: str = "ai"              # no evidence: "ai" = AI replies without inventing facts, "template" = plain idk
     opener_max_words: int = 10        # pick mode
     write_max_words: int = 25         # write mode
+    threads: bool = True              # show messages right before/after a quote
+    thread_window_sec: int = 180      # ...within this many seconds, same channel
+    thread_max: int = 2               # ...at most this many on each side
     debug: bool = False               # print route / stasis / votes after each answer
     stream_chat: bool = False         # true = stream word by word, but skips the "talks about me" check
 

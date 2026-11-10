@@ -12,10 +12,14 @@ from typing import List, Dict, Any, Set
 from retrieval.gradient import GradientProximitySearch, content_terms, stem, tokenize
 
 RRF_K = 60
-POOL = 15
+POOL = 20
 
 
 FIRST_PERSON = {"i", "im", "my", "me", "mine", "ive", "id", "ill", "myself", "we", "us", "our", "were"}
+# "favorite top movies drive the hateful eight" is about me even without "I"
+# (but not "his favorite waitress")
+import re as _re
+FAVORITE = _re.compile(r"(?<!\bhis )(?<!\bher )(?<!\btheir )(?<!\byour )(?<!\bur )\b(fav|fave|favorite|favourite|favs)\b", _re.I)
 
 
 def keyword_score(terms: List[str], text: str, weights: Dict[str, float] = None) -> float:
@@ -40,6 +44,7 @@ class EvidenceSearch:
             return []
         qvec = self.embedder.encode_query(question)
         terms = content_terms(question)
+        shown_texts = {" ".join(tokenize(self.store.rows[i]["text"])) for i in exclude}
         weights = self.gradient._rarity(terms) if self.gradient else {}
         anchor = max(weights, key=weights.get) if weights else None
 
@@ -68,7 +73,8 @@ class EvidenceSearch:
             toks = {stem(w) for w in tokenize(row["text"])}
             c["kw"] = keyword_score(terms, row["text"], weights)
             c["has_anchor"] = anchor is not None and anchor in toks
-            c["first_person"] = bool(FIRST_PERSON & set(tokenize(row["text"])))
+            c["anchor"] = anchor
+            c["first_person"] = bool(FIRST_PERSON & set(tokenize(row["text"]))) or bool(FAVORITE.search(row["text"]))
             c["is_question"] = row["text"].strip().endswith("?")
             c["both"] = len(c["found_by"]) == 2
             c["combo"] = (0.6 * c["sem"] + 0.4 * c["kw"]
@@ -76,4 +82,11 @@ class EvidenceSearch:
                           + (0.05 if c["first_person"] else 0.0)    # talking about myself
                           - (0.10 if c["is_question"] else 0.0))    # asking someone else
         pool.sort(key=lambda c: (c["combo"], c["rrf"]), reverse=True)
-        return pool
+        # the same message sent twice is one piece of evidence
+        seen, unique = set(shown_texts), []
+        for c in pool:
+            key = " ".join(tokenize(c["text"]))
+            if key not in seen:
+                seen.add(key)
+                unique.append(c)
+        return unique

@@ -58,3 +58,39 @@ def tone(q: str) -> str:
 def asks_negative(q: str) -> bool:
     """'do you hate X?' flips what YES means."""
     return bool(re.search(r"\b(hate|dislike|cant stand|cannot stand)\b", norm(q)))
+
+
+QVERB = re.compile(r"^(?:do|does|did|would|will|can|could|have|has)\s+(?:you|u|ya)\s+"
+                   r"(?:ever\s+|still\s+|really\s+|even\s+|usually\s+|actually\s+)*([a-z]+)")
+
+
+def question_verb(q: str):
+    """'did you ever fall off your bike' -> 'fall'; 'have you been to paris' -> None."""
+    m = QVERB.match(norm(q).rstrip("?").strip())
+    if not m:
+        return None
+    v = m.group(1)
+    return None if v in ("been", "be", "a", "an", "the", "any") else v
+
+
+def asks_possession(q: str) -> bool:
+    """'do you have a dog?' / 'do you own a car?' / 'you got a gf?'"""
+    t = norm(q)
+    return bool(re.match(r"^(do|did)\s+(you|u)\s+(have|own|got)\b|^(you|u)\s+(have|got|own)\b|"
+                         r"^have\s+(you|u)\s+got\b", t))
+
+
+def compare_options(q: str):
+    """'do you like cheetos or burritos more?' -> ('cheetos', 'burritos'), else None."""
+    from retrieval.gradient import content_terms, tokenize
+    t = norm(q).rstrip("?").strip()
+    if " or " not in t:
+        return None
+    left, right = t.split(" or ", 1)
+    right = re.sub(r"\b(more|better|most|best|rn|tho|though|lol)\b", " ", right)
+    lt, rt = content_terms(left), content_terms(right)
+    if not lt or not rt:
+        return None
+    lw = [w for w in tokenize(left) if content_terms(w) == [lt[-1]]]
+    rw = [w for w in tokenize(right) if content_terms(w) == [rt[0]]]
+    return (lt[-1], lw[-1] if lw else lt[-1]), (rt[0], rw[0] if rw else rt[0])

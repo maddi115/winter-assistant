@@ -9,6 +9,7 @@ from typing import List, Dict, Any
 
 import lancedb
 import numpy as np
+import pandas as pd
 import pyarrow as pa
 
 TABLE = "evidence"
@@ -29,6 +30,7 @@ def evidence_schema(dim: int) -> pa.Schema:
     return pa.schema([
         ("id", pa.int64()), ("text", pa.string()), ("author", pa.string()),
         ("is_owner", pa.bool_()), ("source", pa.string()), ("date", pa.string()),
+        ("ts", pa.string()), ("channel", pa.string()),
         ("vector", pa.list_(pa.float32(), dim)),
     ])
 
@@ -50,7 +52,51 @@ class EvidenceStore:
         if not len(df):
             return
         self.vectors = np.stack(df["vector"].to_numpy()).astype(np.float32)
+        for col in ("ts", "channel"):          # older imports don't have these
+            if col not in df.columns:
+                df[col] = ""
         self.rows = df.drop(columns=["vector"]).to_dict("records")
+        self._build_threads(df)
+
+    # ---------- threads ----------
+    def _build_threads(self, df):
+        """Order messages by time inside each channel, so a quote can show
+        the messages right before and after it."""
+        when = pd.to_datetime(df["ts"], errors="coerce")
+        secs = (when - pd.Timestamp("1970-01-01")).dt.total_seconds()   # unit-safe
+        self.secs = secs.fillna(-1).astype("int64").to_numpy()
+        self.thread_pos = {}                   # row index -> (channel, position)
+        self.channels = {}                     # channel -> [row indexes by time]
+        order = np.argsort(self.secs, kind="stable")
+        for i in order:
+            if self.secs[i] < 0:
+                continue
+            ch = self.rows[i]["channel"]
+            lst = self.channels.setdefault(ch, [])
+            self.thread_pos[int(i)] = (ch, len(lst))
+            lst.append(int(i))
+
+    def thread(self, idx: int, window_sec: int = 180, max_each_side: int = 2):
+        """[(row_index, is_the_quote)] in time order, same channel, within window_sec."""
+        if idx not in getattr(self, "thread_pos", {}):
+            return []
+        ch, pos = self.thread_pos[idx]
+        lst, t0 = self.channels[ch], self.secs[idx]
+        before, after = [], []
+        for j in range(pos - 1, max(-1, pos - 1 - max_each_side), -1):
+            if t0 - self.secs[lst[j]] > window_sec:
+                break
+            before.insert(0, lst[j])
+        for j in range(pos + 1, min(len(lst), pos + 1 + max_each_side)):
+            if self.secs[lst[j]] - t0 > window_sec:
+                break
+            after.append(lst[j])
+        same = lambda j: self.rows[j]["text"].strip().lower() == self.rows[idx]["text"].strip().lower()
+        before = [j for j in before if not same(j)]
+        after = [j for j in after if not same(j)]
+        if not before and not after:
+            return []
+        return [(j, False) for j in before] + [(idx, True)] + [(j, False) for j in after]
 
     @property
     def ready(self) -> bool:

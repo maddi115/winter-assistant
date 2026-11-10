@@ -19,7 +19,8 @@ from transport.checker import check_opener
 from transport.packer import pack
 from transport.picker import build_messages, vote
 from transport.renderer import render
-from transport.verdict import decide, polarity
+from transport.verdict import decide, polarity, possesses, action_polarity, mentions_object, HABIT_VERBS
+from retrieval.gradient import content_terms, stem
 
 
 @dataclass
@@ -52,6 +53,11 @@ class TransportModel:
         qtype = classify.question_type(question)
         debug = {"qtype": qtype, "tone": tone}
 
+        # comparison: "do you like cheetos or burritos more?"
+        opts = classify.compare_options(question) if not exclude else None
+        if opts:
+            return self._compare(question, opts, tone, debug)
+
         # 2. search
         cands = self.searcher.search(question, exclude)
         if exclude:   # follow-up: only messages that still share the question's words
@@ -59,6 +65,16 @@ class TransportModel:
         # only things I said ABOUT MYSELF can answer a question about me:
         # first person ("I", "my", "we") and not a question I asked someone else
         cands = [x for x in cands if x["first_person"] and not x["is_question"]]
+        # "did you fall off your bike?": candidates must mention the bike, not just "fall"
+        qverb = classify.question_verb(question) if qtype == "yes_no" else None
+        if qverb and qverb not in ("like", "love", "enjoy", "hate", "dislike", "adore", "prefer"):
+            objs = [t for t in content_terms(question) if t != stem(qverb)]
+            if objs:
+                cands = [dict(x, has_anchor=True) for x in cands if mentions_object(x["text"], objs)]
+        # "do you have a dog?" needs "my dog" / "i got a dog"
+        if qtype == "yes_no" and classify.asks_possession(question):
+            cands = [x for x in cands if x.get("anchor") and possesses(x["text"], x["anchor"])]
+            debug["possession"] = True
         if not cands:
             return self._idk(tone, "idk_empty", debug, bool(exclude))
         top = cands[:c.vessels_k]
@@ -73,8 +89,10 @@ class TransportModel:
         if not passed and not exclude:
             return self._idk(tone, "idk_gate", debug, bool(exclude))
 
-        # 4. pack
+        # 4. pack (+ thread context for the AI picker)
         vessels = pack(top, question, c.vessels_k)
+        for v in vessels:
+            v["context"] = self._context(v["idx"])
 
         # 5. clear winner?
         margin = top[0]["combo"] - (top[1]["combo"] if len(top) > 1 else 0.0)
@@ -129,9 +147,20 @@ class TransportModel:
         if qtype == "yes_no":
             # the verdict sees every packed message about the subject that states a feeling,
             # so a newer "i love it now" can't hide behind a clear winner
-            extra = [v for v in vessels if v not in chosen and v["has_anchor"]
-                     and not v["is_question"] and polarity(v["text"]) != 0]
-            verdict, changed, ordered = decide(chosen + extra, flip=classify.asks_negative(question))
+            # (top 15, so a "guilty pleasure" message ranked #8 still counts)
+            verb = classify.question_verb(question)
+            objects = [t for t in content_terms(question) if verb is None or t != stem(verb)]
+            chosen_ids = {v["idx"] for v in chosen}
+            wide = pack(cands[:15], question, 15)
+            def states(v):
+                return (polarity(v["text"]) != 0
+                        or (verb and mentions_object(v["text"], objects) and action_polarity(v["text"], [verb]) != 0)
+                        or action_polarity(v["text"], HABIT_VERBS) > 0)
+            extra = [v for v in wide if v["idx"] not in chosen_ids and v["has_anchor"]
+                     and not v["is_question"] and states(v)]
+            verdict, changed, ordered = decide(chosen + extra, flip=classify.asks_negative(question),
+                                               verb=verb, objects=objects)
+            debug["verb"] = verb
             # show the messages that actually support the verdict
             chosen = ordered if (changed or verdict != "UNCLEAR") else chosen
             opener = templates.pick("CHANGED" if changed else verdict, tone)   # verdict is never the AI's call
@@ -149,7 +178,62 @@ class TransportModel:
                 chosen = chosen[:3]
 
         chosen = chosen[:3]
+        return self._finish(opener, chosen, qtype, changed, route, debug)
+
+    # ---------- helpers ----------
+    @property
+    def store(self):
+        return self.searcher.store
+
+    def _thread(self, idx):
+        if not self.c.threads or not hasattr(self.store, "thread"):
+            return []
+        return self.store.thread(idx, self.c.thread_window_sec, self.c.thread_max)
+
+    def _context(self, idx) -> str:
+        """Neighbor messages as one short line, for the AI picker."""
+        lines = [self.store.rows[j]["text"][:60] for j, is_q in self._thread(idx) if not is_q]
+        return " / ".join(lines)
+
+    def _finish(self, opener, chosen, qtype, changed, route, debug):
         shown = [dict(v, num=i + 1) for i, v in enumerate(chosen)]   # renumber 1..n
-        text = render(opener, shown, qtype, changed)
-        display = render(opener, shown, qtype, changed, highlight=True)
+        threads = {}
+        for v in shown:
+            t = self._thread(v["idx"])
+            if t:
+                threads[v["num"]] = [(self.store.rows[j]["text"], is_q) for j, is_q in t]
+        text = render(opener, shown, qtype, changed, threads=threads)
+        display = render(opener, shown, qtype, changed, highlight=True, threads=threads)
         return TransportResult(text, route, [v["idx"] for v in chosen], debug, display)
+
+    def _compare(self, question, opts, tone, debug):
+        """'cheetos or burritos?' -> score each side by how I talk about it."""
+        debug["qtype"] = "compare"
+        sides = []
+        for stem_, word in opts:
+            cands = self.searcher.search(f"do you like {word}")
+            mine = [x for x in cands if x["first_person"] and not x["is_question"]
+                    and stem_ in {s for s in __import__("retrieval.gradient", fromlist=["x"]).content_terms(x["text"])}]
+            vs = pack(mine[:8], f"do you like {word}", 8)
+            scored = sorted(((polarity(v["text"]), v) for v in vs), key=lambda p: -p[0])
+            score = sum(p for p, _ in scored)
+            best = [v for p, v in scored if p > 0][:3]
+            sides.append({"word": word, "score": score, "best": best, "n": len(vs)})
+        a, b = sides
+        debug["compare"] = {a["word"]: a["score"], b["word"]: b["score"]}
+        if not a["best"] and not b["best"]:
+            return self._idk(tone, "idk_empty", debug)
+        def pick_two(first, second):
+            # one quote per side; a message about BOTH ("burritos xxtra hot cheetos...") counts once
+            out = first["best"][:1]
+            used = {v["idx"] for v in out}
+            out += [v for v in second["best"] if v["idx"] not in used][:1]
+            return out
+        if a["score"] == b["score"] and a["best"] and b["best"]:
+            opener = "Honestly I like both." if tone == "neutral" else "Lowkey both tbh."
+            chosen = pick_two(a, b)
+        else:
+            win, lose = (a, b) if a["score"] > b["score"] else (b, a)
+            opener = f"{win['word'].capitalize()}, for sure." if tone == "casual" else f"{win['word'].capitalize()}."
+            chosen = pick_two(win, lose)
+        return self._finish(opener, chosen[:2], "compare", False, "algo", debug)

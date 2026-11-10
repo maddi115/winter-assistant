@@ -12,8 +12,26 @@ def citation(v: Dict) -> str:
     return f"[{v['num']}] " + " · ".join(bits)
 
 
+def thread_block(num: int, v: Dict, lines, highlight: bool) -> str:
+    """🧵 [1] twitch · 2025-07-05 14:02
+          of course with rice
+        → when my family folks make carne asada...   (the quote, green)
+          i usually give food to homeless people only"""
+    paint = colors.green if highlight else (lambda s: s)
+    soft = colors.dim if highlight else (lambda s: s)
+    when = (v.get("ts") or v.get("date") or "")[:16]
+    head = f"   🧵 [{num}] " + " · ".join(b for b in [v.get("source") or "chat", when] if b)
+    out = [soft(head) if highlight else head]
+    from transport.packer import cosmetic
+    for text, is_quote in lines:
+        t = cosmetic(text)
+        t = t if len(t) <= 110 else t[:107] + "..."
+        out.append(f"    → {paint(t)}" if is_quote else "      " + soft(t))
+    return "\n".join(out)
+
+
 def render(opener: str, vessels: List[Dict], qtype: str, changed: bool = False,
-           highlight: bool = False) -> str:
+           highlight: bool = False, threads: Dict = None) -> str:
     """highlight=True: your quoted words in neon green (terminal only)."""
     paint = colors.green if highlight else (lambda s: s)
     parts = []
@@ -28,7 +46,11 @@ def render(opener: str, vessels: List[Dict], qtype: str, changed: bool = False,
             text = f"Before that: {text}"
         parts.append(f"{text} [{v['num']}]")
     body = " ".join(parts)
-    cites = "   " + "   ".join(citation(v) for v in vessels)
-    if highlight:
+    threads = threads or {}
+    plain = [v for v in vessels if v["num"] not in threads]
+    cites = "   " + "   ".join(citation(v) for v in plain) if plain else ""
+    if highlight and cites:
         cites = colors.dim(cites)
-    return f"{opener} {body}".strip() + "\n" + cites
+    blocks = [thread_block(v["num"], v, threads[v["num"]], highlight) for v in vessels if v["num"] in threads]
+    tail = "\n".join(x for x in [cites] + blocks if x)
+    return f"{opener} {body}".strip() + ("\n" + tail if tail else "")

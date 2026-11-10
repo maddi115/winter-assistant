@@ -66,22 +66,31 @@ class FakeLLM:
         return b
 
 
-EVIDENCE = [
-    ("i like eating burritos xxtra hot cheetos and kombucha thats my combo guilty pleasure", "agentmaddi", "2025-06-10"),
-    ("i like eating my burrito de birria with cheese its awesome", "agentmaddi", "2025-07-01"),
-    ("lordmironia no bro i eat burritos", "agentmaddi", "2025-06-20"),
-    ("i wanna eat hot cheetos and cheap pizza", "madddyyyyi", "2025-06-12"),
-    ("i wanna buy pizza", "agentmaddi", "2025-06-15"),
-    ("sometimes i play video games while listening to the stream", "agentmaddi", "2025-07-03"),
-    ("when i gwow up i wanna be a streamer and play video games all day", "agentmaddi", "2025-07-09"),
-    ("i dont like sushi at all", "agentmaddi", "2025-06-01"),
-    ("ok i tried sushi again and i love it now", "agentmaddi", "2025-08-01"),
-    ("i fell really hard from my stupid bicycle", "madddyyyyi", "2025-06-05"),
-    ("i love pizza so much", "somebody_else", "2025-06-06"),   # NOT the owner
-    ("there was a story about some restaurant owner harrassing a hotdog vendor", "agentmaddi", "2025-07-20"),
-] + [(f"random chat line number {w} about the stream and stuff", "agentmaddi", "2025-06-30")
-     for w in ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
-               "eleven", "twelve", "lol", "bro", "chat", "hello", "goodnight", "gg", "wow", "nice"]]
+EVIDENCE = [   # (text, author, time) - times close together in one channel make a thread
+    ("i like eating burritos xxtra hot cheetos and kombucha thats my combo guilty pleasure", "agentmaddi", "2025-06-10 12:00:00"),
+    ("i like eating my burrito de birria with cheese its awesome", "agentmaddi", "2025-07-01 12:00:00"),
+    ("lordmironia no bro i eat burritos", "agentmaddi", "2025-06-20 12:00:00"),
+    ("i wanna eat hot cheetos and cheap pizza", "madddyyyyi", "2025-06-12 12:00:00"),
+    ("i wanna buy pizza", "agentmaddi", "2025-06-15 12:00:00"),
+    ("sometimes i play video games while listening to the stream", "agentmaddi", "2025-07-03 12:00:00"),
+    ("when i gwow up i wanna be a streamer and play video games all day", "agentmaddi", "2025-07-09 12:00:00"),
+    ("i dont like sushi at all", "agentmaddi", "2025-06-01 12:00:00"),
+    ("ok i tried sushi again and i love it now", "agentmaddi", "2025-08-01 12:00:00"),
+    ("i fell really hard from my stupid bicycle", "madddyyyyi", "2025-06-05 12:00:00"),
+    ("i love pizza so much", "somebody_else", "2025-06-06 12:00:00"),   # NOT the owner
+    ("there was a story about some restaurant owner harrassing a hotdog vendor", "agentmaddi", "2025-07-20 12:00:00"),
+    ("of course with rice", "agentmaddi", "2025-07-05 14:00:10"),
+    ("when my family folks make carne asada and pollo asada we like giving food the homeless people passing by our house", "agentmaddi", "2025-07-05 14:00:40"),
+    ("i usually give food to homeless people only", "agentmaddi", "2025-07-05 14:01:20"),
+    ("i might strreamsnipe and give u one when i get my third job", "agentmaddi", "2025-07-05 14:02:00"),
+    ("my dad wouldve left the dog under a abandoned bridge", "agentmaddi", "2025-07-15 12:00:00"),
+    ("chefie i fell off my bike", "agentmaddi", "2025-06-05 18:00:00"),
+    ("its why i dont eat sheep burrito anymore", "agentmaddi", "2025-08-28 12:00:00"),
+    ("its why i dont eat sheep burrito anymore", "agentmaddi", "2025-08-28 12:05:00"),   # sent twice
+    ("favorite top movies drive the hateful eight pulp fiction dance scene", "agentmaddi", "2025-07-25 12:00:00"),
+] + [(f"random chat line number {w} about the stream and stuff", "agentmaddi", f"2025-06-30 0{i % 10}:00:00")
+     for i, w in enumerate(["one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+               "eleven", "twelve", "lol", "bro", "chat", "hello", "goodnight", "gg", "wow", "nice"])]
 
 
 def build(tmp, ballots=None, **overrides):
@@ -101,7 +110,9 @@ def build(tmp, ballots=None, **overrides):
             "author": [a for _, a, _ in EVIDENCE],
             "is_owner": [a.lower() in owner for _, a, _ in EVIDENCE],
             "source": "twitch",
-            "date": [d for _, _, d in EVIDENCE],
+            "date": [ts[:10] for _, _, ts in EVIDENCE],
+            "ts": [ts for _, _, ts in EVIDENCE],
+            "channel": "artsycomicskid",
             "vector": [v.tolist() for v in emb.encode_docs([t for t, _, _ in EVIDENCE])],
         })
         db.create_table(TABLE, data=df, schema=evidence_schema(emb.dim))
@@ -312,6 +323,34 @@ def main():
         check("keys_paused works (and is safe outside a terminal)", True)
     except Exception as e:
         check("keys_paused works (and is safe outside a terminal)", False, e)
+
+    print("\nG. Stress-test fixes")
+    tmp2 = tempfile.mkdtemp()
+    config, store, tm = build(tmp2, transport_mode="algo")
+    res = tm.answer("do you give food to homeless people?")
+    print("     →", res.text.replace("\n", "\n       "))
+    check("action: 'I usually give food...' -> YES (not 'not sure')",
+          res.text.split(".")[0] + "." in sum((v for k, v in __import__("transport.templates", fromlist=["x"]).OPENERS.items() if k[0] == "YES"), []), res.text)
+    check("threads: neighbors shown with the quote", "🧵" in res.text and "carne asada" in res.text, res.text)
+    res = tm.answer("did you ever fall off your bike?")
+    check("action: 'I fell off my bike' -> YES", "fell" in res.text.lower()
+          and any(o in res.text for o in ["For sure", "Oh yeah", "100%", "Hell yeah", "Yes", "I do"]), res.text)
+    from transport.verdict import decide
+    v, _, _ = decide([{"text": "i instantly fall in love with them", "is_question": False}], verb="fall", objects=["bike"])
+    check("action: 'fall in love' is not 'fell off my bike'", v == "UNCLEAR", v)
+    res = tm.answer("do you have a dog?")
+    check("possession: 'my dad left the dog' is NOT 'I have a dog'", "dad" not in res.text.lower(), res.text)
+    res = tm.answer("do you like sushi or burritos more?")
+    print("     →", res.text.split("\n")[0])
+    res2 = tm.answer("do you like hot cheetos or burritos more?")
+    check("compare: a message about both sides is shown once", res2.text.lower().count("guilty pleasure") <= 1, res2.text)
+    check("compare: picks a winner with quotes", res.text.split(",")[0] in ("Burritos", "Sushi") or res.text.startswith(("Burritos", "Sushi")), res.text)
+    res = tm.answer("what do you eat with burritos?")
+    check("dedupe: same message never shown twice", res.text.lower().count("sheep burrito") <= 1, res.text)
+    cands = tm.searcher.search("what's your favorite movie?")
+    check("favorite statements count as about me", any("pulp fiction" in c["text"] and c["first_person"] for c in cands))
+    t = store.thread(next(i for i, r in enumerate(store.rows) if r["text"].startswith("i usually give")))
+    check("thread stays in time order within 3 minutes", [store.rows[j]["text"][:8] for j, _ in t][0] in ("of cours", "when my "), t)
 
     print(f"\n{len(PASSED)} passed, {len(FAILED)} failed")
     sys.exit(1 if FAILED else 0)

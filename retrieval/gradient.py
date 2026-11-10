@@ -28,6 +28,7 @@ STOP_WORDS = {
     'about', 'think', 'tell', 'say', 'said', 'favorite', 'fav', 'like', 'love',
     'get', 'got', 'go', 'going', 'make', 'want', 'wanna', 'gonna', 'know', 'see', 'okay',
     'lol', 'yeah', 'yes', 'not', 'then', 'there', 'here', 'out', 'up', 'now', 'one', 'still',
+    'off', 'onto', 'into', 'over', 'again', 'yet', 'before', 'after', 'around', 'back', 'down',
 }
 
 

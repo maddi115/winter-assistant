@@ -58,10 +58,96 @@ def polarity(text: str) -> int:
     return (score > 0) - (score < 0)
 
 
-def decide(vessels: List[Dict], flip: bool = False) -> Tuple[str, bool, List[Dict]]:
-    """Returns (verdict, changed_mind, vessels ordered for display)."""
-    # questions ("do you like X?") aren't statements about me
-    scored = [(v, 0 if v.get("is_question") else polarity(v["text"])) for v in vessels]
+# ---------- actions: "did you fall off your bike?" -> "I fell off my bike" = yes ----------
+IRREGULAR = {
+    "fall": ["fell", "fallen"], "give": ["gave", "given"], "eat": ["ate", "eaten"],
+    "drink": ["drank", "drunk"], "go": ["went", "gone"], "get": ["got", "gotten"],
+    "buy": ["bought"], "ride": ["rode", "ridden"], "see": ["saw", "seen"], "make": ["made"],
+    "do": ["did", "done"], "run": ["ran"], "swim": ["swam"], "sing": ["sang"],
+    "drive": ["drove", "driven"], "write": ["wrote"], "take": ["took"], "come": ["came"],
+    "win": ["won"], "lose": ["lost"], "break": ["broke", "broken"], "think": ["thought"],
+    "feel": ["felt"], "meet": ["met"], "leave": ["left"], "sell": ["sold"], "pay": ["paid"],
+    "have": ["had", "has", "having", "got"], "smoke": ["smoked"], "cook": ["cooked"],
+}
+FEELING_VERBS = {"like", "love", "enjoy", "hate", "dislike", "adore", "prefer"}
+HABIT_VERBS = {"drink", "eat", "play", "watch", "listen", "use", "wear", "ride", "smoke", "cook"}
+MODALS = {"wanna", "want", "might", "should", "could", "would", "will", "gonna", "wish", "may",
+          "if", "maybe", "hope", "tryna", "planning", "plan", "need", "gotta"}
+SUBJECT = {"i", "we", "im", "ive", "id"}
+
+
+def verb_forms(v: str):
+    forms = {v, v + "s", v + "ed", v + "d", v + "ing", v + "es"}
+    if v.endswith("e"):
+        forms.add(v[:-1] + "ing")
+    if len(v) > 2 and v[-1] not in "aeiouwy" and v[-2] in "aeiou":
+        forms |= {v + v[-1] + "ing", v + v[-1] + "ed"}       # run -> running, stop -> stopped
+    return forms | set(IRREGULAR.get(v, []))
+
+
+def action_polarity(text: str, verbs) -> int:
+    """+1 'I fell / I give / I drink', -1 'I never / I dont give', 0 not stated or only wished."""
+    toks = _tokens(text)
+    forms = set()
+    for v in verbs:
+        forms |= verb_forms(v)
+    for i, t in enumerate(toks):
+        if t not in forms:
+            continue
+        window = toks[max(0, i - 4):i]
+        if not SUBJECT & set(window):
+            continue
+        if MODALS & set(window):              # "i wanna", "i might", "i wish": not done
+            continue
+        return -1 if NEGATORS & set(window) else 1
+    return 0
+
+
+def possesses(text: str, thing: str) -> bool:
+    """'do you have a dog?' needs 'my dog' / 'i got a dog', not 'my dad left the dog'."""
+    from retrieval.gradient import stem
+    toks = _tokens(text)
+    for i, t in enumerate(toks):
+        if stem(t) == thing:
+            window = toks[max(0, i - 4):i]
+            if window[-3:] and "my" in window[-3:]:
+                return True
+            if {"having"} & set(window) or (SUBJECT & set(window) and
+                                              {"have", "got", "had", "own", "ive", "getting"} & set(window)):
+                return True
+    return False
+
+
+def mentions_object(text: str, objects) -> bool:
+    """'did you fall off your bike?' -> the answer must say 'bike' too
+    (so 'i fall in love' doesn't count)."""
+    if not objects:
+        return True
+    from retrieval.gradient import stem
+    toks = {stem(t) for t in _tokens(text)}
+    return any(o in toks for o in objects)
+
+
+def decide(vessels: List[Dict], flip: bool = False, verb: str = None,
+           objects=None) -> Tuple[str, bool, List[Dict]]:
+    """Returns (verdict, changed_mind, vessels ordered for display).
+    verb = the question's verb ("fall" in "did you fall off your bike?"),
+    objects = the question's other words ("bike")."""
+    def score(v):
+        if v.get("is_question"):              # "do you like X?" isn't a statement about me
+            return 0
+        if verb and verb not in FEELING_VERBS:
+            # "did you fall off your bike?": only the action counts, and it must be about the bike
+            # ("i like girls who... i fall in love" says nothing about bikes)
+            if not mentions_object(v["text"], objects):
+                return 0
+            return action_polarity(v["text"], [verb]) or polarity(v["text"]) * 0
+        p = polarity(v["text"])                # feelings: "i love it", "i hate it"
+        if p == 0 and (not verb or verb in FEELING_VERBS):
+            # "i drink that stuff in 1 day" -> yes; but "i dont eat X anymore" isn't "i hate X"
+            p = max(0, action_polarity(v["text"], HABIT_VERBS))
+        return p
+    scored = [(v, score(v)) for v in vessels]
     pos = [v for v, p in scored if p > 0]
     neg = [v for v, p in scored if p < 0]
     changed = bool(pos and neg)
