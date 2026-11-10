@@ -60,6 +60,21 @@ def persona_guard(reply: str, user_input: str, persona: str) -> str:
     return " ".join(kept).strip() or "lol what's up?"
 
 
+def claim_guard(reply: str) -> str:
+    """General chat: drop sentences where the AI claims a feeling, memory or fact
+    about me ('I love jazz', 'I used to ski'). Returns "" if nothing is left."""
+    from transport.verdict import polarity
+    parts = re.split(r"(?<=[.!?])\s+", reply.strip())
+    kept = []
+    for p in parts:
+        low = p.lower().replace("’", "'")
+        about_me = re.search(r"\b(i|i'm|im|my|me|i've|ive)\b", low)
+        if any(re.search(c, low) for c in CLAIMS[:-2]) or (about_me and polarity(p) != 0):
+            continue
+        kept.append(p)
+    return " ".join(kept).strip()
+
+
 def clean_picks(picks: List[int], n: int) -> List[int]:
     out = []
     for p in picks:

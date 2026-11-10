@@ -34,5 +34,29 @@
   "stream_chat": false,
   "threads": true,
   "thread_window_sec": 180,
-  "thread_max": 2
+  "thread_max": 2,
+  "private_topics": [
+    "ozempic",
+    "wegovy",
+    "semaglutide",
+    "medication",
+    "meds",
+    "diagnosis",
+    "therapy",
+    "therapist",
+    "doctor",
+    "thyroid",
+    "cancer",
+    "health",
+    "weight",
+    "pounds",
+    "lbs",
+    "address",
+    "real name",
+    "password",
+    "phone number",
+    "where do you work",
+    "where u work",
+    "social security"
+  ]
 }

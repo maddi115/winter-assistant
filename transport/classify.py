@@ -36,10 +36,14 @@ def is_question(q: str) -> bool:
 
 
 def about_me(q: str, persona: str, handles) -> bool:
-    """Is the visitor asking about the owner? ('do you...', 'your...', or by name)"""
+    """Is the visitor asking about the owner? ('do you...', 'your...', by name,
+    a bare 'coffee or soda?', or 'fav food??')"""
     t = norm(q)
     if re.search(r"\b(you|your|yours|yourself|u|ur|ya)\b", t):
         return True
+    if not re.search(r"\b(i|me|my|mine)\b", t):          # not the visitor talking about themselves
+        if re.search(r"\b(fav|fave|favorite|favourite)\b", t) or compare_options(q):
+            return True
     names = [persona.lower()] + [h.lower() for h in handles]
     return any(re.search(rf"\b{re.escape(n)}\b", t) for n in names if n)
 
@@ -94,3 +98,13 @@ def compare_options(q: str):
     lw = [w for w in tokenize(left) if content_terms(w) == [lt[-1]]]
     rw = [w for w in tokenize(right) if content_terms(w) == [rt[0]]]
     return (lt[-1], lw[-1] if lw else lt[-1]), (rt[0], rw[0] if rw else rt[0])
+
+
+def private_pattern(topics):
+    words = [re.escape(t.lower()) for t in topics if t.strip()]
+    return re.compile(r"\b(" + "|".join(words) + r")\b", re.I) if words else None
+
+
+def is_private(text: str, topics) -> bool:
+    pat = private_pattern(topics)
+    return bool(pat and pat.search(text.lower().replace("’", "'")))

@@ -16,6 +16,10 @@ OPENERS = {
                         "Hmm, I don't think I've ever said anything about that."],
     ("NOMORE", "casual"): ["That's all I've got on that lol.", "Nah that's all I've said about it."],
     ("NOMORE", "neutral"): ["That's all I've said about that."],
+    ("PRIVATE", "casual"): ["nah that's private lol.", "I'd rather keep that one to myself tbh."],
+    ("PRIVATE", "neutral"): ["That's private, sorry.", "I'd rather keep that to myself."],
+    ("NOPE", "casual"): ["lol nah.", "nice try lol.", "nah I'm good 😂"],
+    ("NOPE", "neutral"): ["I'm not going to do that.", "Nice try."],
     ("IDK", "neutral"): ["I don't think I've ever said anything about that.",
                          "I honestly don't know, I've never talked about it."],
 }

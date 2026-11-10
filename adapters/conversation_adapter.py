@@ -66,6 +66,16 @@ class ConversationAdapter:
             yield f"\n\n⏱️  {time.time() - start:.2f}s\n"
             return
 
+        # private topics: never answered, whatever route it would take
+        if self.config and classify.is_private(user_input, getattr(self.config, "private_topics", [])):
+            from transport import templates
+            response = templates.pick("PRIVATE", classify.tone(user_input))
+            self.last_route, self.last_debug = "private", {}
+            self._save(user_input, response, start)
+            yield response
+            yield f"\n\n⏱️  {time.time() - start:.2f}s · private\n"
+            return
+
         # 2. about the owner -> evidence transport
         if self.transport is not None:
             question, exclude = None, set()
@@ -111,9 +121,14 @@ class ConversationAdapter:
                     yield chunk
             response = ''.join(chunks)
             if not stream:
-                from transport.checker import persona_guard
+                from transport.checker import persona_guard, claim_guard
+                from transport import templates
                 persona = self.config.persona_name if self.config else "Maddi"
                 response = persona_guard(response, user_input, persona)
+                guarded = claim_guard(response)          # no invented likes/memories about me
+                if not guarded:
+                    guarded = templates.pick("NOPE", classify.tone(user_input))
+                response = guarded
                 yield response
             self.last_route, self.last_debug = "general", {}
             self._save(user_input, response, start)

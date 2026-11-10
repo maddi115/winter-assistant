@@ -49,6 +49,11 @@ class EvidenceStore:
         df = self.db.open_table(TABLE).to_pandas()
         # Only the owner's own words can be spoken as "I"
         df = df[df["is_owner"]].reset_index(drop=True)
+        # private topics (health, address...) are never quotable
+        from transport.classify import private_pattern
+        pat = private_pattern(getattr(self.config, "private_topics", []))
+        if pat is not None and len(df):
+            df = df[~df["text"].str.contains(pat, na=False)].reset_index(drop=True)
         if not len(df):
             return
         self.vectors = np.stack(df["vector"].to_numpy()).astype(np.float32)

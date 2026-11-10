@@ -46,6 +46,11 @@ class Config:
     idk_mode: str = "ai"              # no evidence: "ai" = AI replies without inventing facts, "template" = plain idk
     opener_max_words: int = 10        # pick mode
     write_max_words: int = 25         # write mode
+    # never quoted, never answered ("that's private"). Words or phrases, edit freely.
+    private_topics: List[str] = field(default_factory=lambda: [
+        "ozempic", "wegovy", "semaglutide", "medication", "meds", "diagnosis", "therapy", "therapist",
+        "doctor", "thyroid", "cancer", "health", "weight", "pounds", "lbs", "address", "real name",
+        "password", "phone number", "where do you work", "where u work", "social security"])
     threads: bool = True              # show messages right before/after a quote
     thread_window_sec: int = 180      # ...within this many seconds, same channel
     thread_max: int = 2               # ...at most this many on each side
