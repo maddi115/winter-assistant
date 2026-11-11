@@ -140,13 +140,15 @@ def touchy(lines, avoid) -> str:
     return ""
 
 
-def one_conversation(lines, sims, vecs, c, ignore=()):
+def one_conversation(lines, sims, vecs, c, ignore=(), support=()):
     """Stasis gate on chat: 3+ different people, shared real words, and the meaning scores agree."""
     word = touchy(lines, getattr(c, "twitch_avoid_topics", []))
     if word:
         return False, f"touchy topic ({word}) - staying out of it"
     people = {l.user for l in lines}
-    if len(people) < c.twitch_thread_people or len(lines) < 3:
+    backed_early = bool(topic_words(lines[-1].text, ignore) & set(support))
+    min_people = 2 if backed_early else c.twitch_thread_people
+    if len(people) < min_people or len(lines) < (2 if backed_early else 3):
         return False, f"only {len(people)} people on it"
     trig = topic_words(lines[-1].text, ignore)
     if len(trig) < 1:
@@ -155,7 +157,9 @@ def one_conversation(lines, sims, vecs, c, ignore=()):
     people_on_it = {l.user for l in on_it} | {lines[-1].user}
     # short chat lines all "look alike" to meaning scores, so real shared words are REQUIRED:
     # 2+ other lines and 3+ people actually on the same thing
-    if len(on_it) < 2 or len(people_on_it) < c.twitch_thread_people:
+    backed = bool(trig & set(support))     # the stream title / what the streamer said is about it too
+    need_lines, need_people = (1, 2) if backed else (2, c.twitch_thread_people)
+    if len(on_it) < need_lines or len(people_on_it) < need_people:
         return False, "no shared topic"
     if vecs is not None and len(sims) >= 3:
         from retrieval.stasis import gate          # meaning scores = an extra check, never enough alone
@@ -170,18 +174,21 @@ def numbered(lines):
     return "\n".join(f"[{i}] {l.name}: {l.text[:150]}" for i, l in enumerate(lines, 1))
 
 
-def stream_line(stream):
-    return f"On stream right now: {stream}\n" if stream else ""
+def stream_line(stream, heard=()):
+    out = f"On stream right now: {stream}\n" if stream else ""
+    if heard:
+        out += "The streamer just said (speech-to-text, may be misheard): " + " / ".join(heard) + "\n"
+    return out
 
 
-def pick_messages(lines, stream=""):
+def pick_messages(lines, stream="", heard=()):
     system = ("You read a Twitch chat and decide if a regular chatter would say something right now.\n"
               "Pick the numbers of the lines that are one conversation, and how to react:\n"
               "agree = say you agree or relate, joke = a light joke about it, answer = someone asked something "
               "and the lines give the answer, skip = nothing worth adding.\n"
               "Most of the time the answer is skip.\n"
               'Reply ONLY as JSON: {"lines": [numbers], "react": "skip|agree|joke|answer"}')
-    return [{"role": "system", "content": system}, {"role": "user", "content": stream_line(stream) + numbered(lines)}]
+    return [{"role": "system", "content": system}, {"role": "user", "content": stream_line(stream, heard) + numbered(lines)}]
 
 
 def pick(llm, msgs, n, votes=3, temperature=0.4, max_lines=4):
@@ -212,16 +219,18 @@ def pick(llm, msgs, n, votes=3, temperature=0.4, max_lines=4):
     return top, picked, reacts
 
 
-def write_messages(style_prompt, lines, react, stream=""):
+def write_messages(style_prompt, lines, react, stream="", heard=(), emotes=()):
     how = {"agree": "agree or relate with it", "joke": "make a light, low-key joke about it",
            "answer": "answer the question using what chat said"}[react]
     system = (f"You are a regular in this Twitch chat. Write ONE short message (1-8 words) that would come next.\n"
               f"{how}. Only talk about what's in these lines - don't add facts, names or numbers they don't have.\n"
               f"Be specific: mention the actual thing chat is on. Never talk about yourself, your life or being an AI. "
               f"No hashtags, no quotes.\n"
+              + (f"You may end with ONE of these emotes if it fits (most messages none): {' '.join(emotes[:6])}\n"
+                 if emotes else "") +
               f"How you type:\n{style_prompt}\n"
               'Reply ONLY as JSON: {"line": "..."}')
-    return [{"role": "system", "content": system}, {"role": "user", "content": stream_line(stream) + numbered(lines)}]
+    return [{"role": "system", "content": system}, {"role": "user", "content": stream_line(stream, heard) + numbered(lines)}]
 
 
 def specific(reply, lines, ignore=()) -> bool:
@@ -256,21 +265,21 @@ def about_me(reply) -> bool:
     return bool(SELF.search(re.sub(r"\b[A-Z]{3,}\b", " ", reply)))   # ICANT etc. aren't "i"
 
 
-def sense_messages(lines, reply, stream=""):
+def sense_messages(lines, reply, stream="", heard=()):
     system = ("Would this message make sense as the next message in this Twitch chat, said by a regular? "
               "Say false if it's off-topic, weird, generic filler that could be said anytime, repeats someone, "
               "misreads a joke, or sounds like a bot.\n"
               'Reply ONLY as JSON: {"ok": true|false}')
     return [{"role": "system", "content": system},
-            {"role": "user", "content": stream_line(stream) + numbered(lines) + f"\n\nNext message: {reply}"}]
+            {"role": "user", "content": stream_line(stream, heard) + numbered(lines) + f"\n\nNext message: {reply}"}]
 
 
-def makes_sense(llm, lines, reply, votes=3, stream=""):
+def makes_sense(llm, lines, reply, votes=3, stream="", heard=()):
     """2 yes needed. Stops as soon as the answer is decided (2 yes or 2 no) - saves a model call."""
     yes = no = 0
     for i in range(votes):
         try:
-            ok = bool(json.loads(llm.chat_json(sense_messages(lines, reply, stream), OK_SCHEMA, max_tokens=10,
+            ok = bool(json.loads(llm.chat_json(sense_messages(lines, reply, stream, heard), OK_SCHEMA, max_tokens=10,
                                                temperature=0.0 if i == 0 else 0.4)).get("ok"))
         except Exception:
             ok = False

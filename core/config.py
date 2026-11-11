@@ -134,6 +134,19 @@ class Config:
     twitch_pick_max_lines: int = 4        # the picker grabbing more lines than this = "no real conversation" -> skip
     twitch_quote_min_words: int = 5       # answers about me shorter than this (like "For real, I thin.") aren't sent
     twitch_stream_info: bool = True       # read the stream title + category so it knows what's on screen
+    # chat mood -> one emote (twitch/mood.py) - its own budget, separate from words
+    twitch_moment_mood: float = 0.6       # chance to react when 3+ people share a mood
+    twitch_mood_people: int = 2           # 2 people laughing together is already a moment (one emote is low-risk)
+    twitch_mood_seconds: int = 30
+    twitch_emote_gap: int = 180           # seconds between my emote reactions
+    twitch_emote_per_15min_guest: int = 4
+    twitch_emote_per_15min_home: int = 6
+    # hearing the streamer (twitch/hearing.py) - a HINT next to chat, never the only reason to speak
+    twitch_audio_channels: List[str] = field(default_factory=list)   # channels to listen to (only with consent)
+    twitch_audio_model: str = "moonshine/base"   # CPU, ~1 core, ~0.5GB RAM. try "moonshine/tiny" on a slow PC
+    twitch_audio_window: int = 8          # seconds of audio per piece
+    twitch_audio_min_speech: float = 0.25 # less speech than this in a piece = music / game -> skipped
+    twitch_audio_keep: int = 60           # seconds of what the streamer said that I remember
     # never speak up (uninvited) when chat is on these - too easy to go wrong in someone else's chat
     twitch_avoid_topics: List[str] = field(default_factory=lambda: [
         "gay", "lesbian", "straight", "trans", "sex", "sexy", "horny", "peg", "pegging", "porn", "nude", "nudes",

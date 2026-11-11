@@ -8,6 +8,7 @@
                                           #   /quiet   (pretend chat went silent)
                                           #   /later   (pretend 3 hours passed - regulars come back)
                                           #   /stream korean bbq w/ jennie · IRL   (set the stream title)
+                                          #   /said no gloves tonight we going raw  (pretend the streamer said it)
   python tools/twitch_bot.py --show-context   # also print the recent chat the AI saw for each reply
 
 When it answers: twitch/talk.py · when it starts talking on its own: twitch/self_talk.py
@@ -70,7 +71,7 @@ def build_brain(config, no_ai=False):
 
 
 MOMENTS = {"question to chat", "chat on one topic"}   # speaking up uninvited -> grounded in the chat, may skip
-JOIN_IN = MOMENTS | {"chat wave"}               # count against the budget + gap
+JOIN_IN = MOMENTS | {"chat mood"}               # speaking up uninvited (shadow applies)
 THREAD = {"direct", "said my name", "question to chat"}   # answering someone -> "Replying to @x"
 
 
@@ -79,8 +80,8 @@ MAY_SKIP = {"1-on-1"}                      # not talked to directly -> the AI ma
 
 def answer(brain, m, q, why, room, line, note):
     """Asked directly -> full pipeline, always answers. Joining in / 1-on-1 -> the AI may skip."""
-    if why == "chat wave":
-        return q, "wave"                             # just the emoji - no AI needed
+    if why == "chat mood":
+        return q, "emote"                            # one emote for chat's mood - no AI needed
     if why in MOMENTS:
         said, route = brain.speak_up(room, line, m.name)        # my real words first
         if said is None and why == "question to chat" and brain.c.twitch_moment_free_ai:
@@ -102,11 +103,12 @@ def moved_on(room, line, limit):
     return sum(1 for l in after if not l.is_bot) >= limit
 
 
-def mark_spoken(room, why):
-    if why in JOIN_IN:
-        room.spoke_uninvited()
-    if why == "chat wave":
-        room.last_wave = room.clock()
+def mark_spoken(room, why, said=None):
+    if why in MOMENTS:
+        room.spoke_uninvited()               # words budget
+    if why == "chat mood":
+        room.emote_times.append(room.clock())   # emotes have their own budget
+        room.last_emote = said
     if why == "meow":
         room.last_meow = room.clock()
 
@@ -127,7 +129,7 @@ def context_block(brain, route):
     """The recent chat (and notes) the AI saw for this reply, indented for the terminal."""
     if not SHOW_CONTEXT:
         return ""
-    if route in ("algo", "private", "fact", "reflex", "wave", "stranger_self", "idk_gate", "idk_empty",
+    if route in ("algo", "private", "fact", "reflex", "wave", "emote", "dodge", "stranger_self", "idk_gate", "idk_empty",
                  "idk_votes", "algo_fallback"):
         return "\n          (no AI context - answered from rules / my messages)"
     body = brain.last_context or "(empty)"
@@ -173,6 +175,12 @@ def dry_run(config, brain, bot, guest=False):
             else:
                 print("   (stays quiet: not enough chat yet, or talked on my own recently)")
             continue
+        if raw.startswith("/said "):
+            from twitch.hearing import Transcript
+            room.heard = room.heard or Transcript(config.twitch_audio_keep, clock=room.clock)
+            kept = room.heard.add(raw[6:].strip())
+            print(f"   (streamer said: {raw[6:].strip()!r}" + ("" if kept else " - dropped as junk") + ")")
+            continue
         if raw.startswith("/stream "):
             room.stream = raw[8:].strip()
             print(f"   (stream is now: {room.stream})")
@@ -216,7 +224,7 @@ def dry_run(config, brain, bot, guest=False):
             continue
         if reply:
             room.add(bot, bot, reply, is_bot=True)
-            mark_spoken(room, why)
+            mark_spoken(room, why, reply)
         print(f"   → @{bot}: {reply or '(nothing worth saying)'}   [{why} · {route} · {time.time() - t0:.1f}s]"
               + context_block(brain, route))
     print(f"\n🧠 remembered: " + "; ".join(people.note(u) for u in people.people))
@@ -251,6 +259,15 @@ async def live(config, brain):
 
     def people_for(room):
         return guest_people if room.guest else home_people
+
+    from twitch.hearing import Transcript, Hearing
+    ears = []
+    for login in channels:
+        if login in [x.lower() for x in config.twitch_audio_channels]:
+            rooms[login].heard = Transcript(config.twitch_audio_keep)
+            h = Hearing(login, config, rooms[login].heard, log)
+            if h.start():
+                ears.append(h)
     log(f"🤖 @{bot} ready · personality: {config.personality_file}")
 
     cd = Cooldown(config.twitch_user_cooldown, config.twitch_global_cooldown)
@@ -356,13 +373,13 @@ async def live(config, brain):
             if shadow and why in JOIN_IN:
                 log(f"🫥 #{m.channel} would say (shadow, not sent): {reply}   [{why} · {route}]"
                     + context_block(brain, route))
-                mark_spoken(room, why)          # act like it spoke, so the budget behaves the same
+                mark_spoken(room, why, reply)   # act like it spoke, so the budget behaves the same
                 continue
             if config.twitch_typing_delay:
                 await asyncio.sleep(typing_delay(reply, time.time() - t0))
             sent, err = await say(m.channel, reply, m.message_id if why in THREAD else None)
             if sent:
-                mark_spoken(room, why)
+                mark_spoken(room, why, reply)
             mark = "💬" if sent else f"⚠️  not sent ({err})"
             log(f"{mark} {m.user}: {q[:60]}\n          -> {reply}   [{why} · {route} · {time.time() - t0:.1f}s]"
                 + context_block(brain, route))
@@ -399,6 +416,8 @@ async def live(config, brain):
     finally:
         for t in tasks:
             t.cancel()
+        for h in ears:
+            h.stop()
         home_people.save()
 
 

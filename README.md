@@ -160,3 +160,25 @@ Facts about me never come from that file, only from my real messages.
 my messages are already embedded, so live it only embeds short lines (fast on CPU).
 That makes room for `qwen3.5:9b`. Ollama can also shrink its own memory with
 `OLLAMA_FLASH_ATTENTION=1` and `OLLAMA_KV_CACHE_TYPE=q8_0`.
+
+## Emote reactions + hearing the streamer
+
+**Chat mood -> one emote.** When 2+ people share a mood (laugh, shock, gross, sad, hype, food, awkward)
+within 30s, it may react with ONE emote - the emote that chat itself is using (never sub emotes), or
+😹 / HUH / 😭 / 🥀 / W / Kreygasm / 💀. Own budget (1 per 3 min), never the same emote twice in a row,
+never on race / nationality bait.
+
+**Hearing (optional, only for channels in `twitch_audio_channels`, with the streamer's OK).**
+streamlink (audio only) -> ffmpeg -> Silero voice detection -> Moonshine speech-to-text, all on the CPU
+(~1 core, ~0.5GB RAM, no GPU). Noise defenses: music / game sounds aren't transcribed, lyric-like or
+"imagined" lines are dropped, only keywords are used, and a heard word only counts once chat or the stream
+title says it too (echo check). Mostly noise for a few minutes -> it pauses itself. It's a hint, never the
+only reason to speak. Nothing is saved - just the last 60s of text in memory.
+
+Install (once):
+```bash
+sudo apt-get install -y ffmpeg
+pip install streamlink silero-vad
+pip install "useful-moonshine-onnx@git+https://github.com/moonshine-ai/moonshine.git#subdirectory=moonshine-onnx"
+```
+Dry run: `/said no gloves tonight` pretends the streamer said it.

@@ -133,7 +133,7 @@ class Brain:
         try:
             with self.gpu:
                 lines, sims, vecs = F.thread(room, line, embed)
-            ok, why = F.one_conversation(lines, sims, vecs, self.c, F.room_names(room))
+            ok, why = F.one_conversation(lines, sims, vecs, self.c, F.room_names(room), self._support(room))
         except Exception as e:
             lines, ok, why = [line], False, f"error: {e}"
         self._known[key] = (ok, lines, why)
@@ -142,6 +142,20 @@ class Brain:
         return ok
 
     knows = topic                            # old name
+
+    def _support(self, room):
+        """Words the stream title or the streamer (echo-checked) backs up - lets 2 people be enough."""
+        from twitch import chatflow as F
+        words = F.topic_words(getattr(room, "stream", "") or "")
+        heard = getattr(room, "heard", None)
+        if heard is not None:
+            words |= heard.trusted(room)
+        return words
+
+    @staticmethod
+    def _heard(room):
+        heard = getattr(room, "heard", None)
+        return heard.snippets(room) if heard is not None else []
 
     def _transport(self):
         a = next(iter(self.chatters.values()), None) or self.make_adapter(ChatterMemory(0))
@@ -156,6 +170,8 @@ class Brain:
             ctx += (f"\nRecent chat in #{room.channel} (oldest first, 'you' = your own messages):\n" + recent)
         if room is not None and getattr(room, "stream", ""):
             ctx += f"\nOn stream right now: {room.stream}"
+        if room is not None and self._heard(room):
+            ctx += "\nThe streamer just said (speech-to-text, may be misheard): " + " / ".join(self._heard(room))
         if talking_to:
             ctx += f"\nYou're answering {talking_to}. Don't repeat anything 'you' already said."
         if note:
@@ -275,7 +291,8 @@ class Brain:
             self.last_context = "chat lines:\n" + F.numbered(lines)
             return None, "no AI to pick"
         stream = getattr(room, "stream", "")
-        msgs = F.pick_messages(lines, stream)
+        heard = self._heard(room)
+        msgs = F.pick_messages(lines, stream, heard)
         with self.gpu:
             react, picked, votes = F.pick(llm, msgs, len(lines), self.c.twitch_picker_votes,
                                           max_lines=self.c.twitch_pick_max_lines)
@@ -287,8 +304,9 @@ class Brain:
         style = load_style(self.c.style_file) or self.c.style_words
         try:
             with self.gpu:
+                emotes = (room.usable_emotes() if hasattr(room, "usable_emotes") else []) + list(self.personality.emojis)
                 raw = json.loads(llm.chat_json(F.write_messages(style + "\n" + self.personality.prompt, chosen, react,
-                                                                stream),
+                                                                stream, heard, emotes),
                                                F.LINE_SCHEMA, max_tokens=40, temperature=0.7)).get("line", "")
         except Exception:
             raw = ""
@@ -298,9 +316,10 @@ class Brain:
             return None, "nothing written"
         from transport.checker import claim_guard
         slang = set(re.findall(r"[a-z']+", style.lower()))
-        if not F.grounded(text, chosen, slang):
+        said_lines = [type("L", (), {"text": h})() for h in heard]   # what the streamer said counts as backed
+        if not F.grounded(text, chosen + said_lines, slang):
             return None, "made something up (word check)"
-        if not F.specific(text, chosen, F.room_names(room)):
+        if not F.specific(text, chosen + said_lines, F.room_names(room)):
             return None, "too generic (doesn't name the thing)"
         if F.about_me(text) or not claim_guard(text):
             return None, "talked about itself"
@@ -309,7 +328,7 @@ class Brain:
             return None, "didn't pass the filters"
         if self.c.twitch_sense_check:
             with self.gpu:
-                ok = F.makes_sense(llm, chosen, text, stream=stream)
+                ok = F.makes_sense(llm, chosen, text, stream=stream, heard=heard)
             self.last_context += f"\nmakes sense: {ok}"
             if not ok:
                 return None, "didn't make sense (votes)"

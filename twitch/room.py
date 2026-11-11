@@ -28,6 +28,9 @@ class Room:
         self.last_wave = -1e9           # when I last joined a chat wave
         self.last_considered = -1e9     # a moment I thought about but stayed quiet on (short pause)
         self.stream = ""                # "title · category" from Twitch, so I know what's on screen
+        self.heard = None               # Transcript of what the streamer just said (if listening)
+        self.emote_times = []           # my emote reactions (their own budget)
+        self.last_emote = None
         self.uninvited = []             # times I spoke without being asked (budget)
         self.used_quotes = set()        # my real messages already said here this stream (no repeats)
         self.sub_emotes = set()         # the streamer's sub emotes - I can't post them

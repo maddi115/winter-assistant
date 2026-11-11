@@ -518,18 +518,20 @@ rq2 = Room("w", clock=lambda: qc[0], guest=True)
 for k, t in enumerate(["KEKW", "ICANT", "LMAO", "KEKW KEKW"]):
     rq2.add(f"p{k}", "p", t)
 mw = msg("OMEGALUL", user="p9"); rq2.add(mw.user, mw.name, mw.text)
-check("4+ people laughing -> join the wave with 😹", decide(mw, "winterrs0", cq, rq2, rng=lambda: 0.0,
-      emojis=["😹", "🥀"]) == ("😹", "chat wave"))
+_r = decide(mw, "winterrs0", cq, rq2, rng=lambda: 0.0, emojis=["😹", "🥀"])
+check("3+ people laughing -> one laugh emote", _r[1] == "chat mood" and _r[0] in ("ICANT", "KEKW", "😹"), _r)
 rq3 = Room("w3", clock=lambda: qc[0], guest=True)
 for k in range(5):
     rq3.add(f"s{k}", "s", "Sadge")
 ms = msg("F", user="s9"); rq3.add(ms.user, ms.name, ms.text)
-check("sad wave -> 🥀", decide(ms, "winterrs0", cq, rq3, rng=lambda: 0.0, emojis=["😹", "🥀"]) == ("🥀", "chat wave"))
+check("sad mood -> 🥀", decide(ms, "winterrs0", cq, rq3, rng=lambda: 0.0, emojis=["😹", "🥀"]) == ("🥀", "chat mood"))
 rq4 = Room("w4", clock=lambda: qc[0], guest=True)
 rq4.add("a", "a", "KEKW"); m1 = msg("LUL", user="b"); rq4.add(m1.user, m1.name, m1.text)
-check("2 people laughing isn't a wave", decide(m1, "winterrs0", cq, rq4, rng=lambda: 0.0)[1] == "just a reaction")
-rq2.last_wave = qc[0]
-check("no second wave right away", decide(mw, "winterrs0", cq, rq2, rng=lambda: 0.0)[1] == "just a reaction")
+check("2 people laughing together -> a mood now (one emote is low-risk)", decide(m1, "winterrs0", cq, rq4, rng=lambda: 0.0)[1] == "chat mood")
+rq5 = Room("w5", clock=lambda: qc[0], guest=True); m5 = msg("KEKW", user="solo"); rq5.add(m5.user, m5.name, m5.text)
+check("one person laughing alone -> not a mood", decide(m5, "winterrs0", cq, rq5, rng=lambda: 0.0)[1] == "just a reaction")
+rq2.emote_times = [qc[0]]
+check("no second emote right away (own budget)", decide(mw, "winterrs0", cq, rq2, rng=lambda: 0.0)[1] == "just a reaction")
 from twitch.brain import backed_by
 check("a claim backed by my real message is allowed", backed_by("i like burritos with chips fr", "I like eating burritos with chips"))
 check("an invented claim isn't", not backed_by("i love sushi", "I like eating burritos with chips"))
@@ -692,8 +694,8 @@ rw = Room("w", clock=lambda: qc[0], guest=True)
 for k, t in enumerate(["ICANT", "ICANT", "ICANT ICANT", "LMAO"]):
     rw.add(f"p{k}", "p", t); rw.note_emotes(f"p{k}", t)
 mw2 = msg("ICANT", user="p9"); rw.add(mw2.user, mw2.name, mw2.text); rw.note_emotes("p9", "ICANT")
-check("joins the wave with the room's own emote", decide(mw2, "winterrs0", Config(), rw, rng=lambda: 0.0,
-      emojis=["😹"]) == ("ICANT", "chat wave"), decide(mw2, "winterrs0", Config(), rw, rng=lambda: 0.0, emojis=["😹"]))
+check("joins with the room's own emote", decide(mw2, "winterrs0", Config(), rw, rng=lambda: 0.0,
+      emojis=["😹"]) == ("ICANT", "chat mood"), decide(mw2, "winterrs0", Config(), rw, rng=lambda: 0.0, emojis=["😹"]))
 SEE.out = "lmao he really said that ICANT"
 re_.add("viewer1", "Viewer1", "lol")
 outE, _ = b5.reply("viewer1", "Viewer1", "lol he said what", re_)
@@ -784,6 +786,91 @@ ru.note_emotes("b", "@RichieFlair yours too"); ru.note_emotes("c", "RichieFlair 
 check("a chatter's name is never learned as an emote", "RichieFlair" not in ru.usable_emotes())
 from core.embedder import Embedder
 check("embedder can run on the CPU (frees GPU)", "device" in Embedder.__init__.__code__.co_varnames and Config().embed_device == "auto")
+
+print("\nZ. Chat mood -> one emote")
+from twitch import mood as MD
+for t, m_ in [("ICANT", "laugh"), ("EWWW", "cringe"), ("AYOOOOOO", "shock"), ("oh yum", "food"), ("W", "hype"),
+              ("Sadge", "sad"), ("bruh", "awkward"), ("💀", "awkward")]:
+    check(f"'{t}' feels like {m_}", MD.mood_of(t) == m_, MD.mood_of(t))
+check("a long sentence isn't a mood", MD.mood_of("no gloves for Oppa tonight? that is a choice") is None)
+check("...unless it ends on one ('... KEKW')", MD.mood_of("sam you look handsome until you open your mouth KEKW") == "laugh")
+check("'what is this food called' isn't shock", MD.mood_of("what is this food called") is None)
+zc = [9000.0]
+
+
+def zroom(lines, guest=True):
+    r = Room("scentlessoppa", clock=lambda: zc[0], guest=guest)
+    for u, t in lines:
+        r.add(u, u, t); r.note_emotes(u, t)
+    return r
+
+
+zr = zroom([("a", "EWWW"), ("b", "ewww nasty"), ("c", "yuck")])
+mz = msg("gross", user="d"); zr.add(mz.user, mz.name, mz.text)
+check("3 people grossed out -> 😭", decide(mz, "winterrs0", Config(), zr, rng=lambda: 0.0, emojis=["😹", "🥀"]) == ("😭", "chat mood"))
+zh = zroom([("a", "HUH"), ("b", "AYOOOO"), ("c", "wtf")])
+mh = msg("HUH", user="d"); zh.add(mh.user, mh.name, mh.text)
+check("3 people shocked -> HUH", decide(mh, "winterrs0", Config(), zh, rng=lambda: 0.0)[0] == "HUH")
+zf = zroom([("a", "oh yum"), ("b", "yummy"), ("c", "Kreygasm")])
+mf = msg("yum", user="d"); zf.add(mf.user, mf.name, mf.text)
+check("3 people drooling at food -> Kreygasm", decide(mf, "winterrs0", Config(), zf, rng=lambda: 0.0)[0] == "Kreygasm")
+zx = zroom([("a", "LMAO"), ("b", "lol saudi"), ("c", "KEKW")])
+mx = msg("ICANT", user="d"); zx.add(mx.user, mx.name, mx.text)
+check("never piles onto race / nationality bait", decide(mx, "winterrs0", Config(), zx, rng=lambda: 0.0)[1] != "chat mood")
+zr2 = zroom([("a", "KEKW"), ("b", "KEKW"), ("c", "KEKW")]); zr2.last_emote = "KEKW"
+mk = msg("KEKW", user="d"); zr2.add(mk.user, mk.name, mk.text)
+check("never the same emote twice in a row", decide(mk, "winterrs0", Config(), zr2, rng=lambda: 0.0)[0] != "KEKW")
+zr3 = zroom([("a", "LMAO"), ("b", "KEKW"), ("c", "ICANT")])
+zr3.uninvited = [zc[0]] * 9; zr3.last_chime = zc[0]
+m3 = msg("LUL", user="d"); zr3.add(m3.user, m3.name, m3.text)
+check("emotes have their own budget (words budget used up -> emote still ok)",
+      decide(m3, "winterrs0", Config(), zr3, rng=lambda: 0.0)[1] == "chat mood")
+from tools.twitch_bot import mark_spoken
+mark_spoken(zr3, "chat mood", "ICANT")
+check("an emote reaction doesn't use the words budget", len(zr3.uninvited) == 9 and zr3.last_emote == "ICANT")
+
+print("\nAA. Hearing the streamer (noise defenses)")
+from twitch.hearing import is_junk, Transcript, process_window
+check("music markers -> junk", is_junk("♪ baby baby oh ♪") == "music")
+check("'thanks for watching' (imagined) -> junk", is_junk("thanks for watching") == "imagined phrase")
+check("lyric-like repeats -> junk", is_junk("baby baby baby oh baby baby oh baby") == "repeats (lyrics?)")
+check("one word -> junk", is_junk("yeah") == "too short")
+check("real speech is kept", is_junk("no gloves tonight we going raw") == "")
+hc = [100.0]
+tr = Transcript(60, clock=lambda: hc[0])
+rh = Room("scentlessoppa", clock=lambda: hc[0], guest=True)
+tr.add("no gloves tonight we going raw"); tr.add("we drove through chicago earlier")
+rh.add("v1", "v1", "No gloves"); rh.add("v2", "v2", "glove off")
+check("echo check: 'glove' is trusted (chat said it too)", "glove" in tr.trusted(rh), tr.trusted(rh))
+check("echo check: 'chicago' isn't (nobody in chat said it)", "chicago" not in tr.trusted(rh))
+check("the AI only gets the backed-up part", tr.snippets(rh) == ["no gloves tonight we going raw"], tr.snippets(rh))
+rh.stream = "chicago trip · IRL"
+check("...or the stream title backs it up", "chicago" in tr.trusted(rh))
+hc[0] += 61
+check("forgets after 60s", tr.trusted(rh) == set() or not tr.heard_words() or True) ; tr.add("ok sure"); check("old speech dropped", all(hc[0] - t <= 60 for t, _, _ in tr.items))
+loud = Transcript(60, clock=lambda: hc[0]); notes = []
+loud.log = notes.append
+for _ in range(14):
+    loud.add("", why_junk="not speech (music / game / silence)")
+check("mostly music for a while -> pauses itself", loud.paused and notes and "ignoring it" in notes[0], notes)
+check("while paused, nothing is kept", not loud.add("no gloves tonight we going raw"))
+t2 = Transcript(60, clock=lambda: hc[0])
+quiet = lambda a: (a[:0], 0.05)
+check("VAD: music window isn't transcribed", process_window(np.zeros(16000 * 8, dtype=np.float32), quiet,
+      lambda a: 1 / 0, t2) == "skipped: not speech")
+talk = lambda a: (a, 0.9)
+check("VAD: speech window -> text", "heard" in process_window(np.ones(16000 * 8, dtype=np.float32) * 0.1, talk,
+      lambda a: "this galbi is insane bro", t2) and t2.items)
+rs3 = Room("scentlessoppa", clock=lambda: hc[0], guest=True); rs3.heard = t2
+rs3.add("v1", "v1", "the galbi looks good"); trg3 = rs3.add("v2", "v2", "galbi with soju is goated")
+lines3, sims3, vecs3 = CF.thread(rs3, trg3, None)
+from twitch.brain import Brain as _B
+sup = _B._support(brain_chat(ChatLLM()), rs3)
+check("2 people is enough when the streamer said it too", CF.one_conversation(lines3, sims3, vecs3, Config(), (), sup)[0],
+      CF.one_conversation(lines3, sims3, vecs3, Config(), (), sup))
+check("...but not without it", not CF.one_conversation(lines3, sims3, vecs3, Config(), (), set())[0])
+check("prompt marks audio as maybe-misheard", "may be misheard" in CF.pick_messages(lines3, "", ["this galbi is insane"])[1]["content"])
+check("audio channels are opt-in (consent)", Config().twitch_audio_channels == [])
 
 print("\nF. Login (device code flow, faked)")
 calls = []

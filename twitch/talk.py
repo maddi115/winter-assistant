@@ -11,7 +11,7 @@ otherwise only sometimes, and never take over the chat.
   everything else -> only at a real MOMENT, never at random:
      question to chat   "anyone played this?" "who's winning?"               -> maybe (AI may skip)
      chat on one topic  3+ people on the same thing (checked on the chat)    -> maybe (AI may skip)
-     chat wave          4+ people spam the same reaction                     -> maybe one 😹 / 🥀 / W
+     chat mood          3+ people laughing / shocked / grossed out / hype     -> maybe ONE emote (own budget)
   ...and only within a budget: 2 per 15 min as a guest, 4 at home, plus a gap between them
 Starting a conversation on my own (silence, welcome back) lives in twitch/self_talk.py.
 """
@@ -92,16 +92,17 @@ def decide(m: Incoming, bot: str, c, room, rng=random.random, knows=None, emojis
     gap = c.twitch_guest_chime_gap if guest else c.twitch_chime_gap
     room_ok = room.uninvited_since(900) < budget
 
+    # chat mood: 3+ people laughing / shocked / grossed out... -> maybe ONE emote (own budget)
+    from twitch import mood as MD
+    if MD.mood_of(text) and MD.budget_ok(room, c, guest):
+        mood_, lines_ = MD.room_mood(room, c.twitch_mood_seconds, c.twitch_mood_people)
+        if mood_ and rng() < c.twitch_moment_mood:
+            emote = MD.pick_emote(mood_, room, emojis or (), lines_)
+            if emote:
+                return emote, "chat mood"
     # Twitch marks emotes (even the streamer's sub emotes) - a message that's only emotes is a reaction
     only_emotes = bool(getattr(m, "emotes", None)) and is_reaction(m.plain or "")
     if only_emotes or is_reaction(text):
-        # one person laughing isn't a moment. 4+ people laughing together is.
-        mood_ = room.wave() if room_ok and now - room.last_wave >= c.twitch_wave_gap else None
-        # join with the emote the wave itself is using (if I can post it), else my own 😹 / 🥀 / W
-        own = room.wave_emote() if mood_ and hasattr(room, "wave_emote") else None
-        reply = (own or wave_reply(mood_, emojis)) if mood_ else None
-        if reply and rng() < c.twitch_moment_wave:
-            return reply, "chat wave"
         return None, "just a reaction"      # "ICANT", "KEKW", "omg", "😹" - nothing to answer
     if speed >= c.twitch_flying_mpm:
         return None, "chat is flying"       # only answer when someone talks to me
