@@ -125,6 +125,17 @@ someone asks chat a question ("anyone played this?"), chat is on a topic I've re
 2 per 15 min in someone else's chat, 4 at home. Plain chat ("good so far", "let sam drive") never gets a reply.
 Tune it in config.json: `twitch_moment_*`, `twitch_budget_15min_*`, `twitch_topic_min_sem`.
 
+**When it speaks up, it uses MY real words (Evidence-Transport again).** At a moment, the algorithm
+finds up to 5 of my real messages that fit what chat is saying, the AI only picks a number or 0
+(asked 3 times, 2 must agree - "none" is the default), and my exact words are sent. None fit ->
+one sentence built only from those messages (every word checked). That fails -> silence.
+A message of mine is never reused in the same channel that stream. Answers to questions use "Replying to @x".
+It waits like it's typing (1-5s) and drops an uninvited reply if 6+ messages came in meanwhile.
+
+**Emotes.** It learns the emotes a chat actually uses (2+ people, last 30 min) and may use one -
+never the streamer's sub emotes (Twitch marks them). Waves are joined with the room's own emote.
+Meows: 40% at home / 20% as a guest, never twice within 45s / 3 min.
+
 **Not replying to everything.** Emote-only messages (ICANT, KEKW, omg, 😹) are reactions - ignored unless
 they're aimed at me. At home in a 1-on-1 the AI may answer "skip"; direct questions and tags always get an
 answer. Fast chat (20+/min) -> I join in less; flying chat (60+/min) -> only when talked to.

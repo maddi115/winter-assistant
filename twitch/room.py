@@ -24,7 +24,11 @@ class Room:
         self.last_chime = -1e9          # when the bot last jumped in uninvited
         self.last_meow = -1e9           # meows have their own timer (don't eat the join-in budget)
         self.last_wave = -1e9           # when I last joined a chat wave
+        self.last_considered = -1e9     # a moment I thought about but stayed quiet on (short pause)
         self.uninvited = []             # times I spoke without being asked (budget)
+        self.used_quotes = set()        # my real messages already said here this stream (no repeats)
+        self.sub_emotes = set()         # the streamer's sub emotes - I can't post them
+        self.emote_seen = {}            # emote -> [(time, user)] for emotes I could post
         self.idle_spoken = False        # already broke one silence since the last human message
 
     def add(self, user, name, text, is_bot=False) -> Line:
@@ -89,3 +93,44 @@ class Room:
             moods.setdefault(mood(l.text), set()).add(l.user)
         best = max(((m, len(u)) for m, u in moods.items() if m != "other"), key=lambda x: x[1], default=None)
         return best[0] if best and best[1] >= people else None
+
+    def note_emotes(self, user, text, marked=(), plain=None):
+        """Learn which emotes this chat uses. Twitch-marked: global ones are fine, sub emotes aren't.
+        Unmarked emote-looking words (BTTV/7TV like ICANT, KEKW) count once 2+ people use them."""
+        from twitch.emotes import TOKEN, MEANING, _CANON, looks_like_emote
+        now = self.clock()
+        for e in marked or ():
+            name = e.get("name", "")
+            if e.get("owner") in ("", "0") or e.get("set") == "0":
+                self.emote_seen.setdefault(name, []).append((now, user))
+            else:
+                self.sub_emotes.add(name)
+        words = TOKEN.findall(plain if plain is not None else text)
+        for w in words:
+            if w in self.sub_emotes:
+                continue
+            # known emotes, or mixed-case emote names (catJAM) - not ALL CAPS words like WILD / HUH
+            if w.lower() in _CANON or (looks_like_emote(w) and not w.islower() and not w.isupper()):
+                self.emote_seen.setdefault(w, []).append((now, user))
+
+    def usable_emotes(self, window=1800, people=2, top=8):
+        """Emotes I can use here: seen from 2+ people lately, never sub emotes."""
+        cut = self.clock() - window
+        ranked = []
+        for name, uses in self.emote_seen.items():
+            uses[:] = [u for u in uses if u[0] >= cut]
+            who = {u for _, u in uses}
+            if name not in self.sub_emotes and len(who) >= people:
+                ranked.append((len(uses), name))
+        return [n for _, n in sorted(ranked, reverse=True)[:top]]
+
+    def wave_emote(self, seconds=15):
+        """The emote the wave itself is using (if I can post it) - join with the room's own emote."""
+        from collections import Counter
+        from twitch.emotes import TOKEN
+        cut = self.clock() - seconds
+        usable = set(self.usable_emotes(window=seconds + 60, people=2))
+        count = Counter(w for l in self.lines if not l.is_bot and l.ts >= cut
+                        for w in set(TOKEN.findall(l.text)) if w in usable)
+        best = count.most_common(1)
+        return best[0][0] if best and best[0][1] >= 2 else None

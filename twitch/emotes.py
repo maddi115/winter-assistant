@@ -18,6 +18,7 @@ MEANING = {
     "WutFace": "disgusted / wtf", "ResidentSleeper": "boring", "catJAM": "vibing to music",
     "catDance": "vibing", "EZ": "that was easy", "GIGACHAD": "based / confident", "Kreygasm": "pleasure / so good",
     "HUH": "confused", "o7": "salute / respect", "Stare": "staring", "peepoHappy": "happy",
+    "YEP": "yep / agreeing", "NOPERS": "nope", "COPIUM": "coping", "Kek": "laughing", "KEK": "laughing",
     "FeelsBadMan": "sad", "FeelsGoodMan": "happy", "NotLikeThis": "disappointed", "TriHard": "excited",
     "BatChest": "hype (cringe on purpose)", "Deadge": "dead / so over",
     "Bedge": "going to sleep", "Okayge": "it's okay", "Madge": "mad", "pepeLaugh": "laughing knowingly",

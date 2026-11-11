@@ -24,6 +24,7 @@ class Incoming:
     mentions: List[str] = field(default_factory=list)
     emotes: List[str] = field(default_factory=list)   # emotes Twitch marked in the message (incl. sub emotes)
     plain: str = None        # the text without those emotes
+    emote_meta: List[dict] = field(default_factory=list)   # [{"name", "owner", "set"}] - owner "0"/"" = global
 
 
 def parse_event(e: dict) -> Incoming:
@@ -40,7 +41,10 @@ def parse_event(e: dict) -> Incoming:
                     user=(e.get("chatter_user_login") or "").lower(), name=e.get("chatter_user_name", ""),
                     text=msg.get("text", ""), message_id=e.get("message_id", ""),
                     reply_to_user=(reply.get("parent_user_login") or "").lower(), mentions=mentions,
-                    emotes=emotes, plain=plain)
+                    emotes=emotes, plain=plain,
+                    emote_meta=[{"name": f.get("text", ""), "owner": str((f.get("emote") or {}).get("owner_id") or ""),
+                                 "set": str((f.get("emote") or {}).get("emote_set_id") or "")}
+                                for f in frags if f.get("type") == "emote"])
 
 
 def question_for_bot(m: Incoming, bot: str, prefix: str, ignore: List[str],

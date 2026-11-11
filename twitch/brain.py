@@ -146,6 +146,12 @@ class Brain:
         sheet = cheat_sheet(lines + [current])
         if sheet:
             ctx += f"\nTwitch emotes in chat are reactions, not words: {sheet}."
+        room_emotes = room.usable_emotes() if room is not None and hasattr(room, "usable_emotes") else []
+        if room_emotes:
+            ctx += (f"\nEmotes people use in this chat (you may use ONE if it really fits, most messages none): "
+                    + " ".join(room_emotes[:6]))
+        if before is not None:
+            ctx += f"\nYou're reacting to {before.name}: \"{before.text[:150]}\""
         if fact:
             ctx += (f"\nSomething you REALLY said before about this (use it in your own words only if it fits, "
                     f"never quote it, don't add details): \"{fact}\"")
@@ -160,7 +166,8 @@ class Brain:
         if line and self.c.twitch_humanize and route in AI_ROUTES:
             # the AI's own words only - Maddi's real quotes are never touched
             words = self.c.twitch_guest_max_words if guest else self.c.twitch_max_words
-            line = humanize(line, max_words=words, never=self.personality.never, emojis=self.personality.emojis)
+            allowed = list(self.personality.emojis) + (room.usable_emotes() if hasattr(room, "usable_emotes") else [])
+            line = humanize(line, max_words=words, never=self.personality.never, emojis=allowed)
         if line and is_skip(line):
             return None                      # the AI decided this didn't need an answer
         if line and room is not None and repeats(line, room.bot_lines(5)):
@@ -206,6 +213,53 @@ class Brain:
             return None
         line = chat_line(raw, self.c.twitch_max_chars, False, self.c.twitch_block_words)
         return self._polish(line, "general", room)
+
+    def speak_up(self, room, line, name=None):
+        """A moment happened (question to chat / topic I know). My real words first.
+        -> (line or None, route)  route: my words | built from my words | <why it stayed quiet>"""
+        from twitch import moments as M
+        from transport import synth as S
+        tr = self._transport()
+        searcher, llm = getattr(tr, "searcher", None), getattr(tr, "llm", None)
+        private = getattr(self.c, "private_topics", [])
+        try:
+            with self.gpu:
+                cands = M.candidates(searcher, line.text, private, room.used_quotes,
+                                     self.c.twitch_topic_min_sem - 0.05)
+        except Exception:
+            cands = []
+        self.last_context = f"my messages that fit: {len(cands)}"
+        if not cands:
+            return None, "none of my messages fit"
+        if llm is None:
+            self.last_context += "\n" + "\n".join(f"[{c['num']}] {c['display']}" for c in cands)
+            return None, "no AI to pick"
+        chat = room.as_text(self.c.twitch_room_lines, line).splitlines()
+        msgs = M.pick_messages(self.c.persona_name, chat, M.focus(room, line), cands)
+        with self.gpu:
+            n, votes = M.pick(llm, msgs, len(cands), self.c.twitch_picker_votes)
+        self.last_context = msgs[1]["content"] + f"\nvotes: {votes} -> {n or 'none'}"
+        guest = getattr(room, "guest", False)
+        limit = self.c.twitch_guest_quote_chars if guest else self.c.twitch_max_chars
+        if n:
+            mine = cands[n - 1]["display"]
+            text = chat_line(M.tidy(mine), limit, False, self.c.twitch_block_words)
+            if text and not repeats(text, room.bot_lines(5)):
+                room.used_quotes.add(mine.lower())
+                return text, "my words"
+        # last resort: one sentence built only from those messages (every word checked)
+        try:
+            with self.gpu:
+                raw = S.synthesize(llm, line.text, cands, self.c.persona_name, self.c.agent_label,
+                                   self.c.synth_max_words)
+            ok = S.check(raw, cands, line.text, self.c.persona_name, self.c.synth_max_words)
+        except Exception:
+            ok = None
+        if ok:
+            text = chat_line(M.tidy(ok), limit, False, self.c.twitch_block_words)
+            if text and not repeats(text, room.bot_lines(5)) and not self.personality.breaks_rules(text):
+                return text, "built from my words"
+        return None, "none of my messages fit"
 
     def break_silence(self, room):
         return self.self_line(room, "silence")

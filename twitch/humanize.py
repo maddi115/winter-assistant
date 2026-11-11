@@ -75,6 +75,7 @@ def humanize(s: str, keep_emoji: bool = False, max_words: int = 0, never=(), emo
         if len(stripped.split()) >= 1:
             t = stripped
     t = re.sub(r"!+", "", t)                 # nobody chill uses "!" every line
+    t = re.sub(r"\.{2,}", ".", t)            # "content.." -> "content."
     t = re.sub(r"\s+([,.?])", r"\1", t)
     t = re.sub(r"\s+", " ", t).strip()
     t = re.sub(r"[.]$", "", t)               # no period at the end of a chat line

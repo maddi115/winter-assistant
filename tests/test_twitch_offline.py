@@ -190,7 +190,9 @@ say("bob", "this stream is fire")
 q, why = say("viewer1", "lol that boss fight was crazy")
 check("busy chat: plain chat -> no reason to jump in", q is None and why == "no reason to jump in", why)
 check("busy chat: answers when I'm named", say("bob", "winter what do u think") == ("what do u think", "said my name"))
-check("busy chat: answers meow", say("bob", "meow")[1] == "meow")
+_m = msg("meow", user="bob"); room.add(_m.user, _m.name, _m.text)
+check("busy chat: meows back sometimes", decide(_m, "agentwinterrr", c3, room, rng=lambda: 0.0)[1] == "meow")
+check("...but not always (60% of the time it lets it go)", decide(_m, "agentwinterrr", c3, room, rng=lambda: 0.9)[1] == "let the meow go")
 check("busy chat: @me always works", say("bob", "@agentwinterrr yo", mentions=["agentwinterrr"])[1] == "direct")
 check("never jumps into replies to others", say("bob", "true", reply_to="viewer1")[0] is None)
 m = msg("anyone play valorant?", user="cara")
@@ -350,7 +352,7 @@ check("guest budget: 2 per 15 min, then quiet", gsay("viewer3", "who is winning 
 g.last_meow = gc[0]
 check("meow in their chat is rate-limited", gsay("viewer4", "meow")[1] == "meowed recently")
 gc[0] += cg.twitch_meow_gap + 1
-check("meow after its own gap -> meows back", gsay("viewer4", "meow")[1] == "meow")
+check("meow after its own gap -> meows back (on a lucky roll)", gsay("viewer4", "meow", rng=0.0)[1] == "meow")
 check("meow has its own timer (doesn't eat the budget)", g.uninvited_since(900) == 2)
 check("guest join-in chance is lower than home", cg.twitch_guest_chime_chance < cg.twitch_chime_chance)
 stg = SelfTalk(cg, clock=lambda: gc[0])
@@ -549,6 +551,130 @@ check("text + an emote is still real text", me2.plain == "sam uses his hands eve
 for w in ["mvngoDizzy", "jenn1eDaisyGG", "jlleiEating", "gachiBASS", "samEYES"]:
     check(f"'{w}' looks like an emote even without Twitch marking it", is_reaction(w))
 check("normal words don't", not is_reaction("handsome") and not is_reaction("iPhone stuff is cool"))
+
+print("\nS. Speaking up uses MY real words")
+from twitch import moments as MO
+
+
+class FakeSearcher:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def search(self, text):
+        return [dict(r) for r in self.rows]
+
+
+ROWS = [
+    {"text": "he shoves ads down our throats for content..", "first_person": False, "is_question": False, "has_anchor": True, "sem": 0.7},
+    {"text": "I think he just does it for the content tbh", "first_person": True, "is_question": False, "has_anchor": True, "sem": 0.72},
+    {"text": "do you guys like content?", "first_person": True, "is_question": True, "has_anchor": True, "sem": 0.8},
+    {"text": "I smoke weed for content", "first_person": True, "is_question": False, "has_anchor": True, "sem": 0.7},
+    {"text": "I make content every day on twitch", "first_person": True, "is_question": False, "has_anchor": True, "sem": 0.3},
+]
+cs = MO.candidates(FakeSearcher(ROWS), "he just does it for the content", ["weed"], set(), 0.5)
+check("candidates: only me talking, not questions, not private, close enough",
+      [c["display"] for c in cs] == ["I think he just does it for the content tbh."], [c["display"] for c in cs])
+check("candidates: already-used quotes are skipped",
+      MO.candidates(FakeSearcher(ROWS), "content", ["weed"], {"i think he just does it for the content tbh."}, 0.5) == [])
+check("candidates: private chat line -> nothing", MO.candidates(FakeSearcher(ROWS), "who smokes weed", ["weed"], set(), 0.5) == [])
+
+
+class VoteLLM:
+    def __init__(self, picks, synth=None):
+        self.picks, self.synth, self.calls = list(picks), synth, 0
+
+    def chat_json(self, messages, schema, max_tokens=20, temperature=0.0):
+        self.calls += 1
+        if "pick" in schema.get("properties", {}):
+            return json.dumps({"pick": self.picks.pop(0) if self.picks else 0})
+        return json.dumps({"answer": self.synth or ""})
+
+
+check("picker: 2 of 3 agree -> that one", MO.pick(VoteLLM([1, 1, 0]), [], 3)[0] == 1)
+check("picker: all different -> none", MO.pick(VoteLLM([1, 2, 3]), [], 3)[0] == 0)
+check("picker: out-of-range numbers count as none", MO.pick(VoteLLM([9, 9, 1]), [], 3)[0] == 0)
+check("tidy: 'content..' -> 'content.'", MO.tidy("for content..") == "for content.")
+
+
+class TrAdapter(FakeAdapter):
+    pass
+
+
+def brain_with(llm, rows):
+    b = brain_mod.Brain(Config(owner_handles=[]), TrAdapter, ai=None, base_context="BASE")
+    b._transport = lambda: type("T", (), {"searcher": FakeSearcher(rows), "llm": llm})()
+    return b
+
+
+rr6 = Room("scentlessoppa", guest=True)
+rr6.add("viewer1", "Viewer1", "sam is so loud"); trig = rr6.add("viewer2", "Viewer2", "he just does it for the content")
+b6 = brain_with(VoteLLM([1, 1, 1]), ROWS)
+said6, route6 = b6.speak_up(rr6, trig, "Viewer2")
+check("moment -> my exact words", (said6, route6) == ("I think he just does it for the content tbh.", "my words"), (said6, route6))
+check("...and that quote won't be used again here", b6.speak_up(rr6, trig, "Viewer2")[1] == "none of my messages fit")
+check("the picker saw what I'm reacting to", "Viewer2: he just does it for the content" in b6.last_context)
+rr7 = Room("scentlessoppa", guest=True); trig7 = rr7.add("viewer2", "Viewer2", "he just does it for the content")
+b7 = brain_with(VoteLLM([0, 0, 0], synth="I think he does it for the content [1]"), ROWS)
+check("none picked -> a sentence built ONLY from my words", b7.speak_up(rr7, trig7, "Viewer2") ==
+      ("I think he does it for the content", "built from my words"), b7.speak_up(rr7, trig7, "Viewer2"))
+rr8 = Room("scentlessoppa", guest=True); trig8 = rr8.add("viewer2", "Viewer2", "he just does it for the content")
+b8 = brain_with(VoteLLM([0, 0, 0], synth="he is a total clown for content [1]"), ROWS)
+check("built sentence with words I never said -> silence", b8.speak_up(rr8, trig8, "Viewer2")[0] is None)
+b9 = brain_with(VoteLLM([1, 1, 1]), [])
+check("nothing of mine fits -> silence (no free AI)", b9.speak_up(rr8, trig8, "Viewer2") == (None, "none of my messages fit"))
+
+print("\nT. The room's emotes")
+re_ = Room("scentlessoppa", guest=True)
+re_.note_emotes("a", "LUL", [{"name": "LUL", "owner": "0", "set": "0"}], "")
+re_.note_emotes("b", "LUL", [{"name": "LUL", "owner": "0", "set": "0"}], "")
+re_.note_emotes("a", "scentlHere4U", [{"name": "scentlHere4U", "owner": "1234", "set": "999"}], "")
+re_.note_emotes("b", "scentlHere4U", [{"name": "scentlHere4U", "owner": "1234", "set": "999"}], "")
+re_.note_emotes("c", "ICANT this guy", [], "ICANT this guy")
+re_.note_emotes("d", "ICANT", [], "ICANT")
+re_.note_emotes("e", "WILD", [], "WILD"); re_.note_emotes("f", "WILD", [], "WILD")
+ue = re_.usable_emotes()
+check("learns emotes the chat uses (LUL, ICANT)", "LUL" in ue and "ICANT" in ue, ue)
+check("never the streamer's sub emotes", "scentlHere4U" not in ue)
+check("ALL CAPS words aren't emotes (WILD)", "WILD" not in ue)
+re_.note_emotes("g", "catJAM", [], "catJAM")
+check("one person using an emote isn't enough", "catJAM" not in re_.usable_emotes())
+rw = Room("w", clock=lambda: qc[0], guest=True)
+for k, t in enumerate(["ICANT", "ICANT", "ICANT ICANT", "LMAO"]):
+    rw.add(f"p{k}", "p", t); rw.note_emotes(f"p{k}", t)
+mw2 = msg("ICANT", user="p9"); rw.add(mw2.user, mw2.name, mw2.text); rw.note_emotes("p9", "ICANT")
+check("joins the wave with the room's own emote", decide(mw2, "winterrs0", Config(), rw, rng=lambda: 0.0,
+      emojis=["😹"]) == ("ICANT", "chat wave"), decide(mw2, "winterrs0", Config(), rw, rng=lambda: 0.0, emojis=["😹"]))
+SEE.out = "lmao he really said that ICANT"
+re_.add("viewer1", "Viewer1", "lol")
+outE, _ = b5.reply("viewer1", "Viewer1", "lol he said what", re_)
+check("AI may use a room emote (kept as typed)", outE is not None and outE.endswith("ICANT"), outE)
+check("prompt lists the room's emotes", "Emotes people use in this chat" in b5.c.chat_context and "LUL" in b5.c.chat_context, b5.c.chat_context[-200:])
+
+print("\nU. Calm meows + human timing")
+rm_ = Room("h", clock=lambda: qc[0])
+mm1 = msg("@winterrs0 meow", user="v", mentions=["winterrs0"]); rm_.add(mm1.user, mm1.name, mm1.text)
+check("'@winterrs0 meow' is calm too (sometimes lets it go)", decide(mm1, "winterrs0", Config(), rm_, rng=lambda: 0.9)[1] == "let the meow go")
+rm_.last_meow = qc[0]
+check("never two meows within 45s at home", decide(mm1, "winterrs0", Config(), rm_, rng=lambda: 0.0)[1] == "meowed recently")
+check("home meow chance 40%, guest 20%", (Config().twitch_meow_chance_home, Config().twitch_meow_chance_guest) == (0.4, 0.2))
+from tools.twitch_bot import typing_delay, moved_on, THREAD
+check("typing delay grows with length, max 5s", typing_delay("lol", 0) < typing_delay("x" * 100, 0) <= 5.0)
+check("no extra wait if thinking already took long", typing_delay("lol", 9) == 0)
+rs_ = Room("s"); trig_s = rs_.add("v1", "v1", "anyone here play l4d2?")
+for k in range(6):
+    rs_.add(f"x{k}", "x", "spam")
+check("6 new messages since the moment -> chat moved on", moved_on(rs_, trig_s, 6))
+check("answering a question uses 'Replying to'", "question to chat" in THREAD)
+
+print("\nV. The long gap only starts when I actually say something")
+rv2 = Room("g", clock=lambda: qc[0], guest=True)
+mq = msg("anyone tried the new map?", user="v1"); rv2.add(mq.user, mq.name, mq.text)
+check("a moment", decide(mq, "winterrs0", Config(), rv2, rng=lambda: 0.0)[1] == "question to chat")
+rv2.last_considered = qc[0]
+mq2 = msg("who is winning this?", user="v2"); rv2.add(mq2.user, mq2.name, mq2.text)
+check("stayed quiet on it -> short pause only", decide(mq2, "winterrs0", Config(), rv2, rng=lambda: 0.0)[1] == "thought about it recently")
+qc[0] += Config().twitch_consider_gap + 1
+check("a minute later a new moment is possible again", decide(mq2, "winterrs0", Config(), rv2, rng=lambda: 0.0)[1] == "question to chat")
 
 print("\nF. Login (device code flow, faked)")
 calls = []

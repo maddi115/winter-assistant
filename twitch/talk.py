@@ -1,7 +1,8 @@
 """When should Winter talk? Like a person in chat: answer when spoken to,
 otherwise only sometimes, and never take over the chat.
 
-  direct        @winter, a reply to winter, !winter, saying my name, meow    -> always
+  direct        @winter, a reply to winter, !winter, saying my name          -> always
+  meow          sometimes (40% home / 20% guest) and never twice within 45s / 3 min
   guest channel (not mine): no 1-on-1 rule, rarer joining in, "winter" alone isn't my name
   aimed at someone else  (@otherguy ..., replying to someone)               -> never
   just a reaction  ("ICANT", "KEKW", "omg", "😹")                            -> never (unless it's to me)
@@ -42,11 +43,24 @@ def wave_reply(mood_, allowed):
     return None
 
 
+def meow_or_not(text, room, c, guest, rng):
+    """Meow back sometimes, not every time - and never meow-spam."""
+    gap = c.twitch_meow_gap if guest else c.twitch_meow_gap_home
+    if room.clock() - room.last_meow < gap:
+        return None, "meowed recently"
+    if rng() >= (c.twitch_meow_chance_guest if guest else c.twitch_meow_chance_home):
+        return None, "let the meow go"
+    return text, "meow"
+
+
 def decide(m: Incoming, bot: str, c, room, rng=random.random, knows=None, emojis=None):
     """-> (text to answer or None, reason).
     knows(text) -> one of my real messages about this topic, or None (only asked when a moment is possible)."""
+    guest = getattr(room, "guest", False)
     direct = question_for_bot(m, bot, c.twitch_prefix, c.twitch_ignore_users)
     if direct is not None:
+        if reflex(direct):                  # "@winterrs0 meow" - calm about it too
+            return meow_or_not(direct, room, c, guest, rng)
         return direct, "direct"
     if m.user == bot.lower() or m.user in {u.lower() for u in c.twitch_ignore_users}:
         return None, "ignored"
@@ -55,7 +69,6 @@ def decide(m: Incoming, bot: str, c, room, rng=random.random, knows=None, emojis
     text = m.text.strip()
     if m.reply_to_user or m.mentions or re.search(r"(^|\s)@\w", text):
         return None, "talking to someone else"
-    guest = getattr(room, "guest", False)
     now = room.clock()
     # in someone else's chat "winter" is just a word ("winter break") - only my real name counts
     names = {bot.lower(), c.agent_label.lower(), "agentwinter"} | (set() if guest else {"winter"})
@@ -64,9 +77,7 @@ def decide(m: Incoming, bot: str, c, room, rng=random.random, knows=None, emojis
         # "agentwinter whats ur name" -> "whats ur name" (so the question matches normally)
         return re.sub(r"\s+", " ", called.sub(" ", text)).strip(" ,:") or "hey", "said my name"
     if reflex(text):
-        if guest and now - room.last_meow < c.twitch_meow_gap:
-            return None, "meowed recently"
-        return text, "meow"
+        return meow_or_not(text, room, c, guest, rng)
 
     speed = room.mpm() if hasattr(room, "mpm") else 0.0
     budget = c.twitch_budget_15min_guest if guest else c.twitch_budget_15min_home
@@ -78,7 +89,9 @@ def decide(m: Incoming, bot: str, c, room, rng=random.random, knows=None, emojis
     if only_emotes or is_reaction(text):
         # one person laughing isn't a moment. 4+ people laughing together is.
         mood_ = room.wave() if room_ok and now - room.last_wave >= c.twitch_wave_gap else None
-        reply = wave_reply(mood_, emojis) if mood_ else None
+        # join with the emote the wave itself is using (if I can post it), else my own 😹 / 🥀 / W
+        own = room.wave_emote() if mood_ and hasattr(room, "wave_emote") else None
+        reply = (own or wave_reply(mood_, emojis)) if mood_ else None
         if reply and rng() < c.twitch_moment_wave:
             return reply, "chat wave"
         return None, "just a reaction"      # "ICANT", "KEKW", "omg", "😹" - nothing to answer
@@ -94,9 +107,11 @@ def decide(m: Incoming, bot: str, c, room, rng=random.random, knows=None, emojis
                 return None, "tiny message"
             return text, "1-on-1"           # the AI may still skip it
     if now - room.last_chime < gap:
-        return None, "spoke up recently"
+        return None, "spoke up recently"          # only counts when I actually SENT something
     if not room_ok:
         return None, "said enough lately"
+    if now - getattr(room, "last_considered", -1e9) < c.twitch_consider_gap:
+        return None, "thought about it recently"   # stayed quiet on a moment a minute ago
 
     # only a real moment can make me speak up - never a dice roll on random chat
     if asks_chat(text):

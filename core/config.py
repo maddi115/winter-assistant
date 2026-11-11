@@ -115,9 +115,19 @@ class Config:
     twitch_moment_wave: float = 0.5       # 4+ people spamming the same reaction -> one 😹 / 🥀 / W
     twitch_topic_min_sem: float = 0.55    # how close my real message has to be (higher = stricter)
     twitch_wave_gap: int = 180            # seconds between joining waves
-    twitch_meow_gap: int = 60             # seconds between meows in someone else's chat
+    twitch_meow_gap: int = 180            # seconds between meows in someone else's chat
     twitch_budget_15min_guest: int = 2    # max uninvited messages per 15 min in someone else's chat
     twitch_budget_15min_home: int = 4     # ...and in my own
+    twitch_moment_free_ai: bool = False   # question to chat + none of my messages fit -> AI writes anyway (off = silence)
+    twitch_picker_votes: int = 3          # my-words picker: asked 3 times, 2 must agree on the same message
+    twitch_consider_gap: int = 60         # a moment I stayed quiet on -> wait this long before considering another
+    # meows, calmer
+    twitch_meow_chance_home: float = 0.4  # chance to meow back at all (home)
+    twitch_meow_chance_guest: float = 0.2 # ...in someone else's chat
+    twitch_meow_gap_home: int = 45        # seconds between meows at home (twitch_meow_gap is the guest one)
+    # human timing
+    twitch_typing_delay: bool = True      # wait a moment like I'm typing before sending
+    twitch_stale_lines: int = 6           # this many new messages since the moment -> chat moved on, don't send
     twitch_max_reply_tokens: int = 120
     twitch_ignore_users: List[str] = field(default_factory=lambda: [
         "nightbot", "streamelements", "streamlabs", "moobot", "fossabot", "wizebot", "soundalerts", "sery_bot"])

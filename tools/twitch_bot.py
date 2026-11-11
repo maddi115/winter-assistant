@@ -67,7 +67,7 @@ def build_brain(config, no_ai=False):
 
 MOMENTS = {"question to chat", "i know this"}   # speaking up uninvited -> the AI reads chat and may skip
 JOIN_IN = MOMENTS | {"chat wave"}               # count against the budget + gap
-THREAD = {"direct", "said my name"}             # answers to someone -> may use "Replying to @x"
+THREAD = {"direct", "said my name", "question to chat"}   # answering someone -> "Replying to @x"
 
 
 MAY_SKIP = {"1-on-1"}                      # not talked to directly -> the AI may decide it's not worth a reply
@@ -78,9 +78,24 @@ def answer(brain, m, q, why, room, line, note):
     if why == "chat wave":
         return q, "wave"                             # just the emoji - no AI needed
     if why in MOMENTS:
-        fact = brain.knows(q) if why == "i know this" else None
-        return brain.self_line(room, "chime", m.name, note, q, fact=fact), "chime"
+        said, route = brain.speak_up(room, line, m.name)        # my real words first
+        if said is None and why == "question to chat" and brain.c.twitch_moment_free_ai:
+            return brain.self_line(room, "chime", m.name, note, q), "chime"
+        return said, route
     return brain.reply(m.user, m.name, q, room, line, note, may_skip=why in MAY_SKIP)
+
+
+def typing_delay(reply, already):
+    """Humans don't answer instantly: ~1-5s depending on length, minus time already spent thinking."""
+    return max(0.0, min(5.0, 1.0 + 0.035 * len(reply or "")) - already)
+
+
+def moved_on(room, line, limit):
+    """Chat kept going while I was thinking -> my uninvited reply would land late. Don't send."""
+    if line is None or line not in room.lines:
+        return False
+    after = list(room.lines)[list(room.lines).index(line) + 1:]
+    return sum(1 for l in after if not l.is_bot) >= limit
 
 
 def mark_spoken(room, why):
@@ -108,7 +123,8 @@ def context_block(brain, route):
     """The recent chat (and notes) the AI saw for this reply, indented for the terminal."""
     if not SHOW_CONTEXT:
         return ""
-    if route not in ("general", "ai_no_evidence", "chime", "ai_pick", "ai_synth"):
+    if route not in ("general", "ai_no_evidence", "chime", "ai_pick", "ai_synth", "my words",
+                     "built from my words", "none of my messages fit", "no AI to pick"):
         return "\n          (no AI context - answered from rules / my messages)"
     body = brain.last_context or "(empty)"
     return "\n          ┌ what the AI saw:\n" + "\n".join("          │ " + l for l in body.splitlines())
@@ -157,6 +173,7 @@ def dry_run(config, brain, bot, guest=False):
         user = user.strip().lower()
         m = Incoming("dryrun", "0", user, user, text.strip())
         line = room.add(m.user, m.name, m.text)
+        room.note_emotes(m.user, m.text)
         q, why = decide(m, bot, config, room, knows=brain.knows, emojis=brain.personality.emojis)
         away = people.seen(m.user, m.name, m.text, talked_to_me=q is not None)
         note = people.note(m.user, away)
@@ -171,9 +188,11 @@ def dry_run(config, brain, bot, guest=False):
                 print(f"   (stays quiet: {why})")
             continue
         t0 = time.time()
+        if why in MOMENTS:
+            room.last_considered = room.clock()
         reply, route = answer(brain, m, q, why, room, line, note)
-        if not reply and why in MAY_SKIP:
-            print(f"   (stays quiet: didn't need a reply · {route} · {time.time() - t0:.1f}s)" + context_block(brain, route))
+        if not reply and (why in MAY_SKIP or why in MOMENTS):
+            print(f"   (stays quiet: {why} -> {route} · {time.time() - t0:.1f}s)" + context_block(brain, route))
             continue
         if reply:
             room.add(bot, bot, reply, is_bot=True)
@@ -257,6 +276,7 @@ async def live(config, brain):
             await say(m.channel, f"done, forgot everything about u {m.name}")
             return
         line = room.add(m.user, m.name, m.text)
+        room.note_emotes(m.user, m.text, m.emote_meta, m.plain)
         q, why = await asyncio.to_thread(decide, m, bot, config, room, knows=brain.knows,
                                          emojis=brain.personality.emojis)
         if config.twitch_show_chat:
@@ -278,8 +298,8 @@ async def live(config, brain):
             log(f"⏳ {m.user} on cooldown: {q[:60]}")
             return
         cd.mark(m.user)
-        if why in JOIN_IN:                  # the gap starts even if the AI ends up skipping - stay rare
-            room.last_chime = room.clock()
+        if why in MOMENTS:                  # short pause even if I end up quiet; the long gap only starts if I send
+            room.last_considered = room.clock()
         if why == "meow":
             room.last_meow = room.clock()
         try:
@@ -305,8 +325,13 @@ async def live(config, brain):
                 log(f"❌ answer failed for {m.user}: {e}")
                 continue
             if not reply:
-                log(f"🤐 {m.user}: {q[:60]} -> nothing worth saying [{route}]" + context_block(brain, route))
+                log(f"🤐 {m.user}: {q[:60]} -> stayed quiet [{why} -> {route}]" + context_block(brain, route))
                 continue
+            if why in JOIN_IN and moved_on(room, line, config.twitch_stale_lines):
+                log(f"🕰️  {m.user}: {q[:60]} -> chat moved on, not sending: {reply}")
+                continue
+            if config.twitch_typing_delay:
+                await asyncio.sleep(typing_delay(reply, time.time() - t0))
             sent, err = await say(m.channel, reply, m.message_id if why in THREAD else None)
             if sent:
                 mark_spoken(room, why)
