@@ -871,6 +871,26 @@ check("2 people is enough when the streamer said it too", CF.one_conversation(li
 check("...but not without it", not CF.one_conversation(lines3, sims3, vecs3, Config(), (), set())[0])
 check("prompt marks audio as maybe-misheard", "may be misheard" in CF.pick_messages(lines3, "", ["this galbi is insane"])[1]["content"])
 check("audio channels are opt-in (consent)", Config().twitch_audio_channels == [])
+import twitch.hearing as HE
+fake_mv = type(sys)("moonshine_voice")
+
+
+class _MV:
+    def __init__(self, model_path=None, model_arch=None):
+        self.args = (model_path, model_arch)
+
+    def transcribe_without_streaming(self, audio, sample_rate=16000):
+        line = type("Line", (), {"text": "no gloves tonight"})()
+        return type("T", (), {"lines": [line]})()
+
+
+fake_mv.Transcriber = _MV
+fake_mv.get_model_for_language = lambda lang: ("/models/en", 1)
+sys.modules["moonshine_voice"] = fake_mv
+tx = HE.Transcriber()
+check("uses the new moonshine-voice package", tx.kind == "moonshine-voice" and tx(np.zeros(16000)) == "no gloves tonight")
+check("missing() accepts moonshine-voice", "moonshine-voice" not in HE.Hearing.missing())
+del sys.modules["moonshine_voice"]
 
 print("\nF. Login (device code flow, faked)")
 calls = []

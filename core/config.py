@@ -1,7 +1,7 @@
 """Configuration management - all settings in one place"""
 from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 import json
 
 
@@ -144,6 +144,7 @@ class Config:
     # hearing the streamer (twitch/hearing.py) - a HINT next to chat, never the only reason to speak
     twitch_audio_channels: List[str] = field(default_factory=list)   # channels to listen to (only with consent)
     twitch_audio_model: str = "moonshine/base"   # CPU, ~1 core, ~0.5GB RAM. try "moonshine/tiny" on a slow PC
+    twitch_audio_arch: Optional[int] = None         # moonshine-voice model size (None = its default for English)
     twitch_audio_window: int = 8          # seconds of audio per piece
     twitch_audio_min_speech: float = 0.25 # less speech than this in a piece = music / game -> skipped
     twitch_audio_keep: int = 60           # seconds of what the streamer said that I remember

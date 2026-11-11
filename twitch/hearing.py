@@ -1,7 +1,7 @@
 """Hearing the streamer - as a HINT for chat, never the only reason to speak.
 
   streamlink (audio only) -> ffmpeg (16kHz mono) -> voice detection (Silero VAD, CPU)
-  -> Moonshine speech-to-text (CPU, ~1 core, ~0.5GB RAM, no GPU) -> junk filter -> keywords
+  -> Moonshine speech-to-text (moonshine-voice, CPU, ~1 core, ~0.5GB RAM, no GPU) -> junk filter -> keywords
   -> ECHO CHECK: a heard word only counts once chat or the stream title says it too.
 
 Noise defenses: music / game sounds / silence aren't transcribed (VAD), lyric-like or "imagined"
@@ -108,25 +108,25 @@ class Transcript:
 
 
 class Transcriber:
-    """Moonshine on the CPU. Uses its documented file interface (a short temp wav)."""
+    """Moonshine on the CPU. New package `moonshine-voice` (pip install moonshine-voice);
+    falls back to the old `useful-moonshine-onnx` if that's what's installed."""
 
-    def __init__(self, model="moonshine/base"):
-        import moonshine_onnx            # pip install useful-moonshine-onnx (see README)
-        self.m, self.model = moonshine_onnx, model
-        self.fast = None
-        try:                             # newer versions: keep the model loaded (faster)
-            self.fast = moonshine_onnx.MoonshineOnnxModel(model_name=model)
-            self.tok = moonshine_onnx.load_tokenizer()
-        except Exception:
-            self.fast = None
+    def __init__(self, model="moonshine/base", language="en", arch=None):
+        self.kind = None
+        try:
+            from moonshine_voice import Transcriber as MV, get_model_for_language
+            path, default_arch = get_model_for_language(language)     # downloads once, then cached
+            self.t = MV(model_path=path, model_arch=arch if arch is not None else default_arch)
+            self.kind = "moonshine-voice"
+        except ImportError:
+            import moonshine_onnx                                      # old package
+            self.m, self.model, self.kind = moonshine_onnx, model, "moonshine-onnx"
 
     def __call__(self, audio):
-        if self.fast is not None:
-            try:
-                tokens = self.fast.generate(audio[np.newaxis, :].astype(np.float32))
-                return self.tok.decode_batch(tokens)[0]
-            except Exception:
-                self.fast = None
+        audio = np.asarray(audio, dtype=np.float32)
+        if self.kind == "moonshine-voice":
+            out = self.t.transcribe_without_streaming(audio, sample_rate=RATE)
+            return " ".join(l.text for l in getattr(out, "lines", []) if getattr(l, "text", "")).strip()
         with tempfile.NamedTemporaryFile(suffix=".wav") as f:
             with wave.open(f.name, "wb") as w:
                 w.setnchannels(1); w.setsampwidth(2); w.setframerate(RATE)
@@ -180,11 +180,18 @@ class Hearing:
     @staticmethod
     def missing():
         need = [x for x in ("streamlink", "ffmpeg") if not shutil.which(x)]
-        for mod, pkg in (("moonshine_onnx", "useful-moonshine-onnx"), ("silero_vad", "silero-vad")):
+        try:
+            __import__("silero_vad")
+        except Exception:
+            need.append("silero-vad")
+        for mod in ("moonshine_voice", "moonshine_onnx"):          # either works
             try:
                 __import__(mod)
+                break
             except Exception:
-                need.append(pkg)
+                continue
+        else:
+            need.append("moonshine-voice")
         return need
 
     def start(self):
@@ -201,11 +208,12 @@ class Hearing:
 
     def _run(self):
         try:
-            gate, transcribe = VoiceGate(), Transcriber(self.c.twitch_audio_model)
+            gate = VoiceGate()
+            transcribe = Transcriber(self.c.twitch_audio_model, arch=self.c.twitch_audio_arch)
         except Exception as e:
             self.log(f"🎧 #{self.channel}: couldn't load speech models ({e})")
             return
-        self.log(f"🎧 #{self.channel}: listening to the streamer ({self.c.twitch_audio_model}, CPU)")
+        self.log(f"🎧 #{self.channel}: listening to the streamer ({transcribe.kind}, CPU)")
         win = int(RATE * self.c.twitch_audio_window) * 2          # bytes (int16)
         while not self.stop_flag.is_set():
             sl = ff = None

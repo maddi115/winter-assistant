@@ -178,7 +178,7 @@ only reason to speak. Nothing is saved - just the last 60s of text in memory.
 Install (once):
 ```bash
 sudo apt-get install -y ffmpeg
-pip install streamlink silero-vad
-pip install "useful-moonshine-onnx@git+https://github.com/moonshine-ai/moonshine.git#subdirectory=moonshine-onnx"
+pip install streamlink silero-vad moonshine-voice
+python -m moonshine_voice.download --language en
 ```
 Dry run: `/said no gloves tonight` pretends the streamer said it.
