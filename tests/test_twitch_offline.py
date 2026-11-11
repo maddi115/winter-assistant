@@ -479,8 +479,8 @@ SK.out = "ok"
 rv = Room("h"); rv.add("viewer1", "Viewer1", "anyone watching the game"); rv.add("viewer2", "Viewer2", "ICANT")
 cur = rv.add("viewer3", "Viewer3", "who won")
 bs.reply("viewer3", "Viewer3", "who won", rv, cur)
-check("last_context has the recent chat", "Viewer1: anyone watching the game" in bs.last_context
-      and "Viewer2: ICANT" in bs.last_context, bs.last_context[:200])
+check("last_context has the recent chat (real talk only - no 'ICANT' noise)", "Viewer1: anyone watching the game" in bs.last_context
+      and "Viewer2: ICANT" not in bs.last_context, bs.last_context[:200])
 check("last_context leaves out the long personality part", "BASE" not in bs.last_context)
 import tools.twitch_bot as tbot
 tbot.SHOW_CONTEXT = True
@@ -559,7 +559,7 @@ import numpy as np
 
 class ChatLLM:
     """Fake model: picker answers, then the writer line, then the sense votes."""
-    def __init__(self, react="joke", lines=(1, 2, 3, 4), line="$50 parking... yeah no", ok=True):
+    def __init__(self, react="joke", lines=(2, 4), line="$50 parking traffic... yeah no", ok=True):
         self.react, self.lines, self.line, self.ok, self.seen = react, list(lines), line, ok, []
 
     def chat_json(self, messages, schema, max_tokens=20, temperature=0.0):
@@ -620,7 +620,7 @@ check("people counting ('I saw 1') -> not a conversation", not CF.one_conversati
 
 b1 = brain_chat(ChatLLM(), FakeEmbed())
 said, route = b1.speak_up(rt, trig, "the7man360")
-check("traffic convo -> one line grounded in chat", (said, route) == ("$50 parking... yeah no", "from chat"), (said, route))
+check("traffic convo -> one line grounded in chat", (said, route) == ("$50 parking traffic... yeah no", "from chat"), (said, route))
 prompt_text = json.dumps(b1._transport().llm.seen)
 check("my own chat history is NOT in any prompt", "tortilla" not in prompt_text and "burrito" not in prompt_text)
 check("the prompts only have this chat's lines", "Chicago freeway" in prompt_text)
@@ -637,6 +637,28 @@ check("'does this make sense?' votes no -> silence",
       brain_chat(ChatLLM(ok=False), FakeEmbed()).speak_up(rr, rr.lines[-1], "x") == (None, "didn't make sense (votes)"))
 rr = traffic_room()
 check("never names the owner", brain_chat(ChatLLM(line="maddi hates traffic"), FakeEmbed()).speak_up(rr, rr.lines[-1], "x")[0] is None)
+rr = traffic_room()
+check("generic filler ('wtf smh') -> silence", brain_chat(ChatLLM(line="wtf smh"), FakeEmbed()).speak_up(rr, rr.lines[-1], "x") ==
+      (None, "too generic (doesn't name the thing)"))
+check("picker grabbing every line = no conversation -> skip", CF.pick(type("L", (), {"chat_json": lambda self, *a, **k:
+      json.dumps({"lines": [1, 2, 3, 4, 5, 6], "react": "joke"})})(), [], 6)[0] == "skip")
+cnt = {"n": 0}
+
+
+class CountLLM:
+    def chat_json(self, *a, **k):
+        cnt["n"] += 1
+        return json.dumps({"lines": [2], "react": "joke"})
+
+
+CF.pick(CountLLM(), [], 4)
+check("votes stop early once 2 agree (2 calls, not 3)", cnt["n"] == 2, cnt)
+rv = Room("x"); rv.add("a", "a", "hi")
+CF.vectors(FakeEmbed(), list(rv.lines)); first = rv.lines[0].vec
+CF.vectors(type("E", (), {"encode_docs": lambda self, t: 1 / 0})(), list(rv.lines))
+check("each chat line is embedded once (cached)", rv.lines[0].vec is first)
+rd = Room("scentlessoppa", guest=True); rd.stream = "korean bbq w/ jennie · IRL"
+check("stream title goes into the prompts", "korean bbq" in CF.pick_messages(list(traffic_room().lines)[-3:], rd.stream)[1]["content"])
 rg = Room("scentlessoppa", guest=True)
 for u, t in [("a", "approachable until sam explodes"), ("b", "Wait Sam are you an extrovert"),
              ("c", "Sam is petite like a puppy"), ("d", "Sam is gay off stream i can confirm")]:
@@ -732,6 +754,36 @@ check("'are you a bot?' sincerely -> honest, short", bp.reply("v", "V", "are you
 check("'who made you' -> private", bp.reply("v", "V", "who made you")[0] == "thats private 🙏")
 P2 = ld("memory/personality.md")
 check("personality: deadpan, no corny catchphrases", "deadpan" in P2.prompt and "i ran the numbers" in P2.never)
+
+print("\nY. Direct replies: dodge bait, 'about me' only when it is, no scraps")
+from twitch.brain import asks_about_me
+for q in ["do u like burritos", "whats ur fav food", "have you ever been to vegas", "what do you think about linux"]:
+    check(f"'{q}' is about me", asks_about_me(q))
+for q in ["how do u thin sam smells", "is sam tired", "what is this food called", "who will cook and clean"]:
+    check(f"'{q}' is NOT about me", not asks_about_me(q))
+cy = Config(); cy.public_persona = True; cy.agent_label = "winter"; cy.owner_handles = []
+by = brain_mod.Brain(cy, RouterAdapter)
+check("bait about race/smell -> 'nah im good 🙏'", by.reply("v", "V", "how do u thin sam smells? hes from saudi arabia")
+      == ("nah im good 🙏", "dodge"))
+
+
+class ScrapAdapter(RouterAdapter):
+    def chat(self, q):
+        self.last_route = "ai_pick"
+        yield "For real, I thin. [1]\n   [1] twitch\n"
+
+
+check("a 4-word scrap quote isn't sent", brain_mod.Brain(cy, ScrapAdapter).reply("v", "V", "do u think")[0] is None)
+for m_ in ["mow", "baow meow", "miau", "meo"]:
+    check(f"'{m_}' is a meow", reflex(m_) is not None)
+check("🥀 isn't used on a joke", "🥀" not in humanize("lol thats so funny 🥀", emojis=["🥀", "😹"]))
+check("🥀 stays on a sad line", "🥀" in humanize("rip the stream died 🥀", emojis=["🥀", "😹"]))
+ru = Room("scentlessoppa", guest=True)
+ru.add("richieflair", "RichieFlair", "lol"); ru.add("b", "b", "@RichieFlair yours too")
+ru.note_emotes("b", "@RichieFlair yours too"); ru.note_emotes("c", "RichieFlair is funny")
+check("a chatter's name is never learned as an emote", "RichieFlair" not in ru.usable_emotes())
+from core.embedder import Embedder
+check("embedder can run on the CPU (frees GPU)", "device" in Embedder.__init__.__code__.co_varnames and Config().embed_device == "auto")
 
 print("\nF. Login (device code flow, faked)")
 calls = []

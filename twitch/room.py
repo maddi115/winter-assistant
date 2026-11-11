@@ -1,4 +1,5 @@
 """What's been said in chat lately - everyone's messages, not just ones to the bot."""
+import re
 import time
 from collections import deque
 from dataclasses import dataclass
@@ -11,6 +12,7 @@ class Line:
     text: str
     ts: float
     is_bot: bool = False
+    vec: object = None       # meaning vector, computed once (saves GPU/CPU)
 
 
 class Room:
@@ -25,6 +27,7 @@ class Room:
         self.last_meow = -1e9           # meows have their own timer (don't eat the join-in budget)
         self.last_wave = -1e9           # when I last joined a chat wave
         self.last_considered = -1e9     # a moment I thought about but stayed quiet on (short pause)
+        self.stream = ""                # "title · category" from Twitch, so I know what's on screen
         self.uninvited = []             # times I spoke without being asked (budget)
         self.used_quotes = set()        # my real messages already said here this stream (no repeats)
         self.sub_emotes = set()         # the streamer's sub emotes - I can't post them
@@ -105,10 +108,13 @@ class Room:
                 self.emote_seen.setdefault(name, []).append((now, user))
             else:
                 self.sub_emotes.add(name)
-        words = TOKEN.findall(plain if plain is not None else text)
+        src = plain if plain is not None else text
+        tagged = {w.lower() for w in re.findall(r"@(\w+)", src)}
+        users = {l.user.lower() for l in self.lines} | tagged
+        words = TOKEN.findall(re.sub(r"@\w+", " ", src))
         for w in words:
-            if w in self.sub_emotes:
-                continue
+            if w in self.sub_emotes or w.lower() in users:
+                continue                # "RichieFlair" is a person, not an emote
             # known emotes, or mixed-case emote names (catJAM) - not ALL CAPS words like WILD / HUH
             if w.lower() in _CANON or (looks_like_emote(w) and not w.islower() and not w.isupper()):
                 self.emote_seen.setdefault(w, []).append((now, user))

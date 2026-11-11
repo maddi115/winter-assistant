@@ -24,6 +24,15 @@ class Helix:
         data = self._call("GET", f"/users?{q}").get("data", [])
         return {u["login"]: u["id"] for u in data}
 
+    def channel_info(self, broadcaster_ids):
+        """{id: "title · category"} - what's on stream, so the AI isn't guessing."""
+        q = "&".join(f"broadcaster_id={b}" for b in broadcaster_ids)
+        out = {}
+        for d in self._call("GET", f"/channels?{q}").get("data", []):
+            bits = [x for x in (d.get("title", "").strip(), d.get("game_name", "").strip()) if x]
+            out[d.get("broadcaster_id")] = " · ".join(bits)[:160]
+        return out
+
     def subscribe_chat(self, session_id, broadcaster_id, bot_id):
         return self._call("POST", "/eventsub/subscriptions", body={
             "type": "channel.chat.message", "version": "1",

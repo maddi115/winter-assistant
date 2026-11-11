@@ -18,16 +18,20 @@ _CACHE = {}
 class Embedder:
     """Wraps sentence-transformers. All vectors come back L2-normalized."""
 
-    def __init__(self, model_name: str):
+    def __init__(self, model_name: str, device: str = "auto"):
+        """device: auto (GPU if there is one) | cpu (frees ~1.2GB of GPU for a bigger chat model) | cuda"""
         from sentence_transformers import SentenceTransformer
         offline = os.environ.get("WINTER_ALLOW_DOWNLOAD") != "1"
         kw = {}
         try:
             import torch
-            if torch.cuda.is_available():
+            use_gpu = torch.cuda.is_available() and device != "cpu"
+            kw["device"] = "cuda" if use_gpu else "cpu"
+            if use_gpu:
                 kw["model_kwargs"] = {"dtype": torch.float16}   # half the VRAM
         except Exception:
             pass
+        self.device = kw.get("device", "cpu")
         self.model = SentenceTransformer(model_name, local_files_only=offline, **kw)
         self.dim = self.model.get_sentence_embedding_dimension()
 
@@ -52,7 +56,8 @@ class Embedder:
 
 def get_embedder(config) -> Embedder:
     name = config.embedding_model
+    device = getattr(config, "embed_device", "auto")
     if name not in _CACHE:
-        print(f"🔄 Loading embedding model {name}...")
-        _CACHE[name] = Embedder(name)
+        print(f"🔄 Loading embedding model {name}" + (" on the CPU (GPU left for the chat model)" if device == "cpu" else "") + "...")
+        _CACHE[name] = Embedder(name, device)
     return _CACHE[name]

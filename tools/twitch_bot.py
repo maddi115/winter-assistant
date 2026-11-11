@@ -7,6 +7,7 @@
                                           #   someuser: yo whats good
                                           #   /quiet   (pretend chat went silent)
                                           #   /later   (pretend 3 hours passed - regulars come back)
+                                          #   /stream korean bbq w/ jennie · IRL   (set the stream title)
   python tools/twitch_bot.py --show-context   # also print the recent chat the AI saw for each reply
 
 When it answers: twitch/talk.py · when it starts talking on its own: twitch/self_talk.py
@@ -171,6 +172,10 @@ def dry_run(config, brain, bot, guest=False):
                     room.add(bot, bot, said, is_bot=True)
             else:
                 print("   (stays quiet: not enough chat yet, or talked on my own recently)")
+            continue
+        if raw.startswith("/stream "):
+            room.stream = raw[8:].strip()
+            print(f"   (stream is now: {room.stream})")
             continue
         if raw == "/later":
             gone = config.twitch_welcome_back_sec + 1
@@ -362,6 +367,19 @@ async def live(config, brain):
             log(f"{mark} {m.user}: {q[:60]}\n          -> {reply}   [{why} · {route} · {time.time() - t0:.1f}s]"
                 + context_block(brain, route))
 
+    async def stream_watch():
+        """Stream title + category, once a minute (the AI can't see the video, this helps a lot)."""
+        while config.twitch_stream_info:
+            try:
+                info = await asyncio.to_thread(helix.channel_info, list(ids.values()))
+                for login, cid in ids.items():
+                    if info.get(cid) and info[cid] != rooms[login].stream:
+                        rooms[login].stream = info[cid]
+                        log(f"📺 #{login}: {info[cid]}")
+            except Exception as e:
+                log(f"⚠️  couldn't read stream info: {e}")
+            await asyncio.sleep(60)
+
     async def self_watch():
         while True:
             await asyncio.sleep(15)
@@ -375,7 +393,7 @@ async def live(config, brain):
                         me.record(room)
                         log(f"{'💭' if sent else '⚠️ '} #{ch} on my own -> {said}")
 
-    tasks = [asyncio.create_task(worker()), asyncio.create_task(self_watch())]
+    tasks = [asyncio.create_task(worker()), asyncio.create_task(self_watch()), asyncio.create_task(stream_watch())]
     try:
         await listen(helix, bot_id, channels, on_event, log)
     finally:

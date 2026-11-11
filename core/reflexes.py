@@ -2,7 +2,7 @@
 import random
 import re
 
-MEOW = re.compile(r"^\W*((m+e+o+w+|m+r+o+w+|m+e+w+|n+y+a+|purr+)\W*)+$", re.I)
+MEOW = re.compile(r"^\W*((m+e+o+w+|m+r+o+w+|m+e+w+|m+o+w+|m+i+a+u+|m+e+o+|b+a+o+w+|n+y+a+|purr+)\W*)+$", re.I)
 MEOW_BACK = ["meow baow", "meow 🐱", "meow baow 🐱", "meoww 😺", "meow meow"]
 
 

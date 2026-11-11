@@ -69,6 +69,8 @@ def humanize(s: str, keep_emoji: bool = False, max_words: int = 0, never=(), emo
     if max_words:
         s = shorten(s, max_words)
     t = s if keep_emoji else one_flavor(s, emojis)
+    if "🥀" in t and re.search(r"\b(lol|lmao|haha|funny|KEKW|LUL|ICANT)\b|😹", t, re.I):
+        t = t.replace("🥀", "").strip()     # 🥀 is for sad moments, not jokes
     t = OPENER.sub("hey ", t)
     for _ in range(2):                       # "hey bro! what's up?" -> "hey bro"
         stripped = FILLER_END.sub("", t)

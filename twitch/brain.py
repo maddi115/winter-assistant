@@ -16,6 +16,17 @@ from twitch.rules import chat_line
 from twitch.humanize import humanize
 
 AI_ROUTES = {"general", "ai_no_evidence"}
+QUOTE_ROUTES = {"algo", "ai_pick", "ai_synth", "algo_fallback"}
+ABOUT_ME = re.compile(
+    r"\b(do|did|have|are|were|would|will|can|could|should)\s+(you|u)\b(?!\s+(think|thin|know|guys|see|hear|mean|"
+    r"remember|believe|reckon))|\b(your|ur)\s+(fav|favorite|favourite|"
+    r"opinion|take|go-?to)\b|\bwhat\s+(do|did)\s+(you|u)\s+(like|love|hate|think|eat|drink|play|watch|do)\b|"
+    r"\bhave\s+(you|u)\s+ever\b|\b(you|u)\s+(like|love|hate|play|watch|eat|drink)\b", re.I)
+
+
+def asks_about_me(q) -> bool:
+    """'do u like burritos' / 'whats ur fav food' = about me. 'how does sam smell' = not."""
+    return bool(ABOUT_ME.search(q or ""))
 # who-am-i questions in public chat: just my name. AI only when sincerely asked. Tech details stay private.
 PUBLIC_FACTS = {
     "AI_NAME": "{name}. u?",
@@ -140,9 +151,11 @@ class Brain:
         """The chat AI gets the recent chat + what I remember about this person
         as background (one answer at a time, so this is safe)."""
         ctx = self.base
-        recent = room.as_text(self.c.twitch_room_lines, before) if room is not None else ""
+        recent = self._pertinent(room, before) if room is not None else ""
         if recent:
             ctx += (f"\nRecent chat in #{room.channel} (oldest first, 'you' = your own messages):\n" + recent)
+        if room is not None and getattr(room, "stream", ""):
+            ctx += f"\nOn stream right now: {room.stream}"
         if talking_to:
             ctx += f"\nYou're answering {talking_to}. Don't repeat anything 'you' already said."
         if note:
@@ -169,6 +182,18 @@ class Brain:
         self.c.chat_context = ctx
         self.last_context = ctx[len(self.base):].strip()   # what the AI saw (for --show-context)
 
+    def _pertinent(self, room, before=None, n=10):
+        """Chat for the AI: real talk only (no reactions, emote spam or touchy lines), newest n."""
+        from twitch import chatflow as F
+        avoid = getattr(self.c, "twitch_avoid_topics", [])
+        keep = [l for l in room.recent(self.c.twitch_room_lines * 2, before)
+                if l.is_bot or (not F.touchy([l], avoid) and l in F.clean_lines(room, before, 60))][-n:]
+        out = []
+        for l in keep:
+            t = l.text if len(l.text) <= 150 else l.text[:147] + "..."
+            out.append(f"{'you' if l.is_bot else l.name}: {t}")
+        return "\n".join(out)
+
     def _polish(self, line, route, room=None):
         guest = getattr(room, "guest", False)
         if line and self.c.twitch_humanize and route in AI_ROUTES:
@@ -188,8 +213,14 @@ class Brain:
         """-> (chat line or None, route)"""
         a = self._adapter(user)
         is_owner = user in {h.lower() for h in self.c.owner_handles}
+        public = getattr(self.c, "public_persona", False)
+        if public:
+            from twitch import chatflow as F
+            if F.touchy([type("L", (), {"text": question})()], getattr(self.c, "twitch_avoid_topics", [])):
+                return "nah im good 🙏", "dodge"            # bait about race, sex, drugs... -> no
+        a.skip_transport = public and not asks_about_me(question)   # "how does sam smell" isn't about me
         key, data = a.router.route(question)
-        if key in PUBLIC_FACTS and getattr(self.c, "public_persona", False):
+        if key in PUBLIC_FACTS and public:
             return PUBLIC_FACTS[key].format(name=self.c.agent_label), "fact"
         if data and data.get("perspective") == "owner" and not is_owner:
             # "what's my name" from a stranger is about THEM, not Maddi
@@ -201,6 +232,8 @@ class Brain:
         guest = getattr(room, "guest", False)
         limit = self.c.twitch_guest_quote_chars if guest and a.last_route not in AI_ROUTES else self.c.twitch_max_chars
         text = chat_line(out, limit, self.c.twitch_citations, self.c.twitch_block_words, self.c.twitch_max_quotes)
+        if text and a.last_route in QUOTE_ROUTES and len(text.split()) < self.c.twitch_quote_min_words:
+            return None, a.last_route            # "For real, I thin." - a scrap, not an answer
         return self._polish(text, a.last_route, room), a.last_route
 
     def self_line(self, room, kind="silence", name=None, note=None, text=None, fact=None):
@@ -241,9 +274,11 @@ class Brain:
         if llm is None:
             self.last_context = "chat lines:\n" + F.numbered(lines)
             return None, "no AI to pick"
-        msgs = F.pick_messages(lines)
+        stream = getattr(room, "stream", "")
+        msgs = F.pick_messages(lines, stream)
         with self.gpu:
-            react, picked, votes = F.pick(llm, msgs, len(lines), self.c.twitch_picker_votes)
+            react, picked, votes = F.pick(llm, msgs, len(lines), self.c.twitch_picker_votes,
+                                          max_lines=self.c.twitch_pick_max_lines)
         self.last_context = F.numbered(lines) + f"\nvotes: {votes} -> {react} {picked}"
         if react == "skip":
             return None, "skip (votes)"
@@ -252,7 +287,8 @@ class Brain:
         style = load_style(self.c.style_file) or self.c.style_words
         try:
             with self.gpu:
-                raw = json.loads(llm.chat_json(F.write_messages(style + "\n" + self.personality.prompt, chosen, react),
+                raw = json.loads(llm.chat_json(F.write_messages(style + "\n" + self.personality.prompt, chosen, react,
+                                                                stream),
                                                F.LINE_SCHEMA, max_tokens=40, temperature=0.7)).get("line", "")
         except Exception:
             raw = ""
@@ -264,6 +300,8 @@ class Brain:
         slang = set(re.findall(r"[a-z']+", style.lower()))
         if not F.grounded(text, chosen, slang):
             return None, "made something up (word check)"
+        if not F.specific(text, chosen, F.room_names(room)):
+            return None, "too generic (doesn't name the thing)"
         if F.about_me(text) or not claim_guard(text):
             return None, "talked about itself"
         text = self._polish(text, "general", room)
@@ -271,7 +309,7 @@ class Brain:
             return None, "didn't pass the filters"
         if self.c.twitch_sense_check:
             with self.gpu:
-                ok = F.makes_sense(llm, chosen, text)
+                ok = F.makes_sense(llm, chosen, text, stream=stream)
             self.last_context += f"\nmakes sense: {ok}"
             if not ok:
                 return None, "didn't make sense (votes)"

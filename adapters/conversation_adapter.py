@@ -88,7 +88,7 @@ class ConversationAdapter:
             return
 
         # 2. about the owner -> evidence transport
-        if self.transport is not None:
+        if self.transport is not None and not getattr(self, "skip_transport", False):
             question, exclude = None, set()
             if classify.is_followup(user_input) and self.last_evidence_q:
                 question, exclude = self.last_evidence_q, set(self.shown)

@@ -132,6 +132,8 @@ My own chat history is never in that prompt. `twitch/chatflow.py`:
 3. the AI picks the lines + a reaction (agree / joke / answer / skip) - 3 votes, 2 must agree, skip wins ties
 4. one short line from those lines, in my learned style (`memory/style.md`) + personality
 5. word check (nothing chat didn't say - no new names/numbers), never about itself, "makes sense?" vote (2 of 3)
+It needs 2+ other lines and 3+ people sharing a real word (names / filler / emotes don't count), knows the
+stream title + category (it can't see the video), and drops generic filler ("wtf smh").
 Anything fails -> silence. In someone else's chat it starts in **shadow mode** (`twitch_shadow_guest`):
 speaking up is only logged as 🫥 until you've read the log and turn it off.
 
@@ -151,3 +153,10 @@ Emojis I may use are listed in `memory/personality.md` (😹 🥀) - optional, a
 
 `memory/personality.md` is how I talk. Edit it any time - it reloads by itself.
 Facts about me never come from that file, only from my real messages.
+
+## Running a bigger model on 8GB
+
+`"embed_device": "cpu"` in config.json moves the embedding model off the GPU (~1.2GB freed) -
+my messages are already embedded, so live it only embeds short lines (fast on CPU).
+That makes room for `qwen3.5:9b`. Ollama can also shrink its own memory with
+`OLLAMA_FLASH_ATTENTION=1` and `OLLAMA_KV_CACHE_TYPE=q8_0`.

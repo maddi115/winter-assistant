@@ -13,6 +13,7 @@ class Config:
     storage_path: str = "storage"
     conv_history_path: str = "conversations_fallback"
     embedding_model: str = "Qwen/Qwen3-Embedding-0.6B"
+    embed_device: str = "auto"       # "cpu" frees ~1.2GB of GPU (needed to fit a 9B chat model on 8GB)
 
     # LLM (Ollama)
     model_name: str = "qwen3.5:4b"
@@ -130,6 +131,9 @@ class Config:
     twitch_sense_check: bool = True       # final "does this make sense right now?" vote (2 of 3)
     twitch_shadow_guest: bool = True      # someone else's chat: speaking up is only LOGGED (🫥), not sent - review first
     twitch_shadow_home: bool = False      # my own chat: speaking up is sent
+    twitch_pick_max_lines: int = 4        # the picker grabbing more lines than this = "no real conversation" -> skip
+    twitch_quote_min_words: int = 5       # answers about me shorter than this (like "For real, I thin.") aren't sent
+    twitch_stream_info: bool = True       # read the stream title + category so it knows what's on screen
     # never speak up (uninvited) when chat is on these - too easy to go wrong in someone else's chat
     twitch_avoid_topics: List[str] = field(default_factory=lambda: [
         "gay", "lesbian", "straight", "trans", "sex", "sexy", "horny", "peg", "pegging", "porn", "nude", "nudes",
@@ -137,7 +141,10 @@ class Config:
         "mexican", "indian", "arab", "jew", "jewish", "muslim", "christian", "religion", "god", "politics",
         "trump", "biden", "democrat", "republican", "election", "vote", "weed", "drugs", "drunk", "high",
         "cocaine", "kill", "die", "dead", "suicide", "gun", "shoot", "fat", "ugly", "skinny", "weight",
-        "autism", "autistic", "retard", "middle-eastern", "immigrant", "illegal"])
+        "autism", "autistic", "retard", "middle-eastern", "immigrant", "illegal",
+        "teabag", "tea bag", "teabagging", "ass", "butt", "booty", "panties", "underwear", "thong", "cuck",
+        "cucking", "down there", "busst", "bust", "cum", "smell", "smells", "saudi", "arab", "arabian",
+        "culture", "wife", "gooner", "simp"])
     # meows, calmer
     twitch_meow_chance_home: float = 0.4  # chance to meow back at all (home)
     twitch_meow_chance_guest: float = 0.2 # ...in someone else's chat

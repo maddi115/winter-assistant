@@ -102,7 +102,7 @@ def thread(room, line, embed=None, k=5):
     if embed is not None:
         try:
             q = embed.encode_query(line.text)
-            vecs = embed.encode_docs([l.text for l in pool])
+            vecs = np.stack(vectors(embed, pool))      # each line is embedded once, then cached
             sims = vecs @ q
         except Exception:
             vecs = None
@@ -116,8 +116,18 @@ def thread(room, line, embed=None, k=5):
     s = np.array([float(sims[i]) for i in top] + [1.0])
     v = None
     if vecs is not None:
-        v = np.vstack([vecs[top]] + [embed.encode_docs([line.text])]) if top else embed.encode_docs([line.text])
+        own = vectors(embed, [line])[0][None, :]
+        v = np.vstack([vecs[top], own]) if top else own
     return lines, s, v
+
+
+def vectors(embed, lines):
+    """Meaning vectors for chat lines - computed once per line and kept on it."""
+    todo = [l for l in lines if getattr(l, "vec", None) is None]
+    if todo:
+        for l, v in zip(todo, embed.encode_docs([l.text for l in todo])):
+            l.vec = v
+    return [l.vec for l in lines]
 
 
 def touchy(lines, avoid) -> str:
@@ -141,39 +151,46 @@ def one_conversation(lines, sims, vecs, c, ignore=()):
     trig = topic_words(lines[-1].text, ignore)
     if len(trig) < 1:
         return False, "nothing to talk about in that message"
-    sharing = sum(1 for l in lines[:-1] if trig & topic_words(l.text, ignore))
+    on_it = [l for l in lines[:-1] if trig & topic_words(l.text, ignore)]
+    people_on_it = {l.user for l in on_it} | {lines[-1].user}
+    # short chat lines all "look alike" to meaning scores, so real shared words are REQUIRED:
+    # 2+ other lines and 3+ people actually on the same thing
+    if len(on_it) < 2 or len(people_on_it) < c.twitch_thread_people:
+        return False, "no shared topic"
     if vecs is not None and len(sims) >= 3:
-        # meaning scores (the stasis gate, like over my messages) - "drive / traffic / parking" agree
-        # even without repeating a word
-        from retrieval.stasis import gate
-        ok, stab, conf = gate(vecs, sims, has_keyword=sharing >= 1,
+        from retrieval.stasis import gate          # meaning scores = an extra check, never enough alone
+        ok, stab, conf = gate(vecs, sims, has_keyword=True,
                               stability_min=c.twitch_chat_stability, confidence_min=c.twitch_chat_confidence)
         if not ok:
             return False, f"chat not on one thing (stability {stab:.2f}, confidence {conf:.2f})"
-        return True, f"one conversation (stability {stab:.2f}, confidence {conf:.2f})"
-    if sharing < 2:                         # no meaning scores -> need 2+ other lines sharing a real word
-        return False, "no shared topic"
-    return True, "one conversation (shared words)"
+    return True, "one conversation: " + ", ".join(sorted(trig & set().union(*(topic_words(l.text, ignore) for l in on_it))))
 
 
 def numbered(lines):
     return "\n".join(f"[{i}] {l.name}: {l.text[:150]}" for i, l in enumerate(lines, 1))
 
 
-def pick_messages(lines):
+def stream_line(stream):
+    return f"On stream right now: {stream}\n" if stream else ""
+
+
+def pick_messages(lines, stream=""):
     system = ("You read a Twitch chat and decide if a regular chatter would say something right now.\n"
               "Pick the numbers of the lines that are one conversation, and how to react:\n"
               "agree = say you agree or relate, joke = a light joke about it, answer = someone asked something "
               "and the lines give the answer, skip = nothing worth adding.\n"
               "Most of the time the answer is skip.\n"
               'Reply ONLY as JSON: {"lines": [numbers], "react": "skip|agree|joke|answer"}')
-    return [{"role": "system", "content": system}, {"role": "user", "content": numbered(lines)}]
+    return [{"role": "system", "content": system}, {"role": "user", "content": stream_line(stream) + numbered(lines)}]
 
 
-def pick(llm, msgs, n, votes=3, temperature=0.4):
-    """2 of 3 must agree on the reaction (skip wins ties); lines = picked by 2+ votes."""
+def pick(llm, msgs, n, votes=3, temperature=0.4, max_lines=4):
+    """2 of 3 must agree on the reaction (skip wins ties); lines = picked by 2+ votes.
+    Stops early once 2 votes agree (saves a model call). Grabbing almost every line = no real convo."""
     reacts, ids = [], Counter()
     for i in range(votes):
+        if len(reacts) >= 2 and reacts[-1] == reacts[-2]:
+            break
         try:
             d = json.loads(llm.chat_json(msgs, PICK_SCHEMA, max_tokens=40, temperature=0.0 if i == 0 else temperature))
             r = d.get("react", "skip")
@@ -186,21 +203,31 @@ def pick(llm, msgs, n, votes=3, temperature=0.4):
     top, count = Counter(reacts).most_common(1)[0]
     if count < 2 or top == "skip" or reacts.count("skip") >= count:
         return "skip", [], reacts
-    picked = sorted(i for i, c_ in ids.items() if c_ >= 2) or [n]
+    need = 2 if len(reacts) >= 2 else 1
+    picked = sorted(i for i, c_ in ids.items() if c_ >= need) or [n]
     if n not in picked:
         picked.append(n)                     # always include what I'm reacting to
+    if len(picked) > max_lines + 1 or (n >= 5 and len(picked) >= n):
+        return "skip", [], reacts            # "all of them" = it couldn't find the conversation
     return top, picked, reacts
 
 
-def write_messages(style_prompt, lines, react):
+def write_messages(style_prompt, lines, react, stream=""):
     how = {"agree": "agree or relate with it", "joke": "make a light, low-key joke about it",
            "answer": "answer the question using what chat said"}[react]
     system = (f"You are a regular in this Twitch chat. Write ONE short message (1-8 words) that would come next.\n"
               f"{how}. Only talk about what's in these lines - don't add facts, names or numbers they don't have.\n"
-              f"Never talk about yourself, your life or being an AI. No hashtags, no quotes.\n"
+              f"Be specific: mention the actual thing chat is on. Never talk about yourself, your life or being an AI. "
+              f"No hashtags, no quotes.\n"
               f"How you type:\n{style_prompt}\n"
               'Reply ONLY as JSON: {"line": "..."}')
-    return [{"role": "system", "content": system}, {"role": "user", "content": numbered(lines)}]
+    return [{"role": "system", "content": system}, {"role": "user", "content": stream_line(stream) + numbered(lines)}]
+
+
+def specific(reply, lines, ignore=()) -> bool:
+    """The reply names the actual thing (gloves, soju, traffic) - not filler like 'wtf smh'."""
+    words = set().union(*(topic_words(l.text, ignore) for l in lines)) if lines else set()
+    return bool(words & topic_words(reply, ignore)) or bool(words & topic_words(reply))
 
 
 def grounded(reply, lines, slang=(), allow_new=1):
@@ -229,20 +256,25 @@ def about_me(reply) -> bool:
     return bool(SELF.search(re.sub(r"\b[A-Z]{3,}\b", " ", reply)))   # ICANT etc. aren't "i"
 
 
-def sense_messages(lines, reply):
+def sense_messages(lines, reply, stream=""):
     system = ("Would this message make sense as the next message in this Twitch chat, said by a regular? "
-              "Say false if it's off-topic, weird, repeats someone, or sounds like a bot.\n"
+              "Say false if it's off-topic, weird, generic filler that could be said anytime, repeats someone, "
+              "misreads a joke, or sounds like a bot.\n"
               'Reply ONLY as JSON: {"ok": true|false}')
     return [{"role": "system", "content": system},
-            {"role": "user", "content": numbered(lines) + f"\n\nNext message: {reply}"}]
+            {"role": "user", "content": stream_line(stream) + numbered(lines) + f"\n\nNext message: {reply}"}]
 
 
-def makes_sense(llm, lines, reply, votes=3):
-    yes = 0
+def makes_sense(llm, lines, reply, votes=3, stream=""):
+    """2 yes needed. Stops as soon as the answer is decided (2 yes or 2 no) - saves a model call."""
+    yes = no = 0
     for i in range(votes):
         try:
-            yes += bool(json.loads(llm.chat_json(sense_messages(lines, reply), OK_SCHEMA, max_tokens=10,
-                                                 temperature=0.0 if i == 0 else 0.4)).get("ok"))
+            ok = bool(json.loads(llm.chat_json(sense_messages(lines, reply, stream), OK_SCHEMA, max_tokens=10,
+                                               temperature=0.0 if i == 0 else 0.4)).get("ok"))
         except Exception:
-            pass
+            ok = False
+        yes, no = yes + ok, no + (not ok)
+        if yes >= 2 or no >= 2:
+            break
     return yes >= 2
