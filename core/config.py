@@ -132,6 +132,7 @@ class Config:
     twitch_sense_check: bool = True       # final "does this make sense right now?" vote (2 of 3)
     twitch_shadow_guest: bool = True      # someone else's chat: speaking up is only LOGGED (🫥), not sent - review first
     twitch_shadow_home: bool = False      # my own chat: speaking up is sent
+    twitch_third_party_emotes: bool = False  # BTTV/7TV words (ICANT, KEKW, HUH): off = only Twitch's own emotes (render for everyone)
     twitch_shadow_emotes: bool = False    # emote-only reactions (LUL, ICANT, 😹) skip shadow - they ARE sent, words stay shadowed
     twitch_pick_max_lines: int = 4        # the picker grabbing more lines than this = "no real conversation" -> skip
     twitch_quote_min_words: int = 5       # answers about me shorter than this (like "For real, I thin.") aren't sent

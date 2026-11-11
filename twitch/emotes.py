@@ -24,6 +24,11 @@ MEANING = {
     "Bedge": "going to sleep", "Okayge": "it's okay", "Madge": "mad", "pepeLaugh": "laughing knowingly",
 }
 _CANON = {k.lower(): k for k in MEANING}
+# Twitch's own GLOBAL emotes - these turn into pictures for everyone. ICANT / KEKW / HUH / catJAM are
+# BTTV / 7TV / FFZ: only people with that extension see a picture, everyone else just sees the word.
+TWITCH_GLOBAL = {"LUL", "Kappa", "BibleThump", "NotLikeThis", "SeemsGood", "WutFace", "DansGame", "Kreygasm",
+                 "4Head", "ResidentSleeper", "HeyGuys", "VoHiYo", "CoolStoryBob", "FailFish", "BabyRage",
+                 "PJSalt", "Jebaited", "SMOrc", "BloodTrail", "MingLee", "CoolCat"}
 # short reactions that aren't worth an answer on their own
 NOISE = set(_CANON) | {"lol", "lmao", "lmfao", "omg", "xd", "haha", "hahaha", "hah", "lul", "w", "l", "gg",
                        "ggs", "f", "rip", "wow", "ok", "k", "kk", "bruh", "damn", "ayo", "yoo", "nah",

@@ -515,12 +515,15 @@ check("'huh?' isn't a question to chat", not asks_chat("huh?"))
 check("'anyone played this before?' is", asks_chat("anyone played this before?"))
 said = lambda t: "I like eating burritos with chips" if "burrito" in t else None
 check("topic I really talked about -> moment", qsay("v4", "chat whats ur fav burrito spot", knows=said)[1] in ("chat on one topic", "question to chat"))
-rq2 = Room("w", clock=lambda: qc[0], guest=True)
+rq2 = Room("w", clock=lambda: qc[0], guest=True); rq2.native_only = False   # BTTV/7TV mode
 for k, t in enumerate(["KEKW", "ICANT", "LMAO", "KEKW KEKW"]):
     rq2.add(f"p{k}", "p", t)
 mw = msg("OMEGALUL", user="p9"); rq2.add(mw.user, mw.name, mw.text)
 _r = decide(mw, "winterrs0", cq, rq2, rng=lambda: 0.0, emojis=["😹", "🥀"])
 check("3+ people laughing -> one laugh emote", _r[1] == "chat mood" and _r[0] in ("ICANT", "KEKW", "😹"), _r)
+rq2.native_only = True; rq2.last_emote = None
+_r = decide(mw, "winterrs0", cq, rq2, rng=lambda: 0.0, emojis=["😹", "🥀"])
+check("default: laughing -> LUL (a real picture), never ICANT/KEKW as plain text", _r[0] in ("LUL", "😹"), _r)
 rq3 = Room("w3", clock=lambda: qc[0], guest=True)
 for k in range(5):
     rq3.add(f"s{k}", "s", "Sadge")
@@ -678,7 +681,7 @@ check("picker: 2 of 3 must agree, skip wins ties", CF.pick(type("L", (), {"chat_
       json.dumps({"lines": [2], "react": "agree"})])) else False)
 
 print("\nT. The room's emotes")
-re_ = Room("scentlessoppa", guest=True)
+re_ = Room("scentlessoppa", guest=True); re_.native_only = False             # BTTV/7TV mode
 re_.note_emotes("a", "LUL", [{"name": "LUL", "owner": "0", "set": "0"}], "")
 re_.note_emotes("b", "LUL", [{"name": "LUL", "owner": "0", "set": "0"}], "")
 re_.note_emotes("a", "scentlHere4U", [{"name": "scentlHere4U", "owner": "1234", "set": "999"}], "")
@@ -692,7 +695,11 @@ check("never the streamer's sub emotes", "scentlHere4U" not in ue)
 check("ALL CAPS words aren't emotes (WILD)", "WILD" not in ue)
 re_.note_emotes("g", "catJAM", [], "catJAM")
 check("one person using an emote isn't enough", "catJAM" not in re_.usable_emotes())
-rw = Room("w", clock=lambda: qc[0], guest=True)
+re_.native_only = True
+check("default: only Twitch emotes that render (LUL yes, ICANT no)", "LUL" in re_.usable_emotes() and "ICANT" not in re_.usable_emotes())
+check("Twitch-marked global from chat counts as native", re_.renders("LUL") and not re_.renders("KEKW"))
+re_.native_only = False
+rw = Room("w", clock=lambda: qc[0], guest=True); rw.native_only = False
 for k, t in enumerate(["ICANT", "ICANT", "ICANT ICANT", "LMAO"]):
     rw.add(f"p{k}", "p", t); rw.note_emotes(f"p{k}", t)
 mw2 = msg("ICANT", user="p9"); rw.add(mw2.user, mw2.name, mw2.text); rw.note_emotes("p9", "ICANT")
@@ -812,7 +819,12 @@ mz = msg("gross", user="d"); zr.add(mz.user, mz.name, mz.text)
 check("3 people grossed out -> 😭", decide(mz, "winterrs0", Config(), zr, rng=lambda: 0.0, emojis=["😹", "🥀"]) == ("😭", "chat mood"))
 zh = zroom([("a", "HUH"), ("b", "AYOOOO"), ("c", "wtf")])
 mh = msg("HUH", user="d"); zh.add(mh.user, mh.name, mh.text)
-check("3 people shocked -> HUH", decide(mh, "winterrs0", Config(), zh, rng=lambda: 0.0)[0] == "HUH")
+zh.native_only = False
+check("3 people shocked -> HUH (BTTV/7TV mode)", decide(mh, "winterrs0", Config(), zh, rng=lambda: 0.0)[0] == "HUH")
+zh.native_only = True; zh.last_emote = None; zh.emote_times = []
+check("default: shocked -> WutFace / 😳 (renders for everyone)", decide(mh, "winterrs0", Config(), zh, rng=lambda: 0.0)[0] in ("WutFace", "😳"),
+      decide(mh, "winterrs0", Config(), zh, rng=lambda: 0.0))
+check("BTTV/7TV emotes off by default", Config().twitch_third_party_emotes is False)
 zf = zroom([("a", "oh yum"), ("b", "yummy"), ("c", "Kreygasm")])
 mf = msg("yum", user="d"); zf.add(mf.user, mf.name, mf.text)
 check("3 people drooling at food -> Kreygasm", decide(mf, "winterrs0", Config(), zf, rng=lambda: 0.0)[0] == "Kreygasm")

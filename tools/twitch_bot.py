@@ -156,6 +156,7 @@ def dry_run(config, brain, bot, guest=False):
     where = "someone else's channel (guest)" if guest else "my own channel (home)"
     print(f"\n🧪 Dry run as @{bot} in {where}.  user: message  ·  /quiet = silence  ·  /later = 3h pass  ·  Ctrl+D quits\n")
     room = Room("dryrun", guest=guest)
+    room.native_only = not config.twitch_third_party_emotes
     people = Chatters(None)                 # dry run never writes your chatter file
     me = SelfTalk(config, clock=room.clock)
     for raw in sys.stdin:
@@ -245,6 +246,8 @@ async def live(config, brain):
     if not channels:
         raise SystemExit("❌ No channels to join. Set twitch_channels in config.json")
     rooms = {login: Room(login, guest=(login != bot)) for login in channels}
+    for r in rooms.values():
+        r.native_only = not config.twitch_third_party_emotes   # ICANT as plain text looks botty
     ids = dict(channels)
     # my own channel: chatters saved to disk.  someone else's: only in memory while running
     home_people = Chatters(config.twitch_chatters_file if config.twitch_remember_chatters else None)

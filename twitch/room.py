@@ -35,6 +35,8 @@ class Room:
         self.used_quotes = set()        # my real messages already said here this stream (no repeats)
         self.sub_emotes = set()         # the streamer's sub emotes - I can't post them
         self.emote_seen = {}            # emote -> [(time, user)] for emotes I could post
+        self.native = set()             # Twitch-marked global emotes seen here (they render for everyone)
+        self.native_only = True         # only post emotes that show as a picture without BTTV/7TV
         self.idle_spoken = False        # already broke one silence since the last human message
 
     def add(self, user, name, text, is_bot=False) -> Line:
@@ -109,6 +111,7 @@ class Room:
             name = e.get("name", "")
             if e.get("owner") in ("", "0") or e.get("set") == "0":
                 self.emote_seen.setdefault(name, []).append((now, user))
+                self.native.add(name)
             else:
                 self.sub_emotes.add(name)
         src = plain if plain is not None else text
@@ -122,14 +125,20 @@ class Room:
             if w.lower() in _CANON or (looks_like_emote(w) and not w.islower() and not w.isupper()):
                 self.emote_seen.setdefault(w, []).append((now, user))
 
+    def renders(self, name):
+        """Will this show as a picture for everyone? (Twitch global, not a BTTV/7TV word)"""
+        from twitch.emotes import TWITCH_GLOBAL
+        return not self.native_only or name in self.native or name in TWITCH_GLOBAL
+
     def usable_emotes(self, window=1800, people=2, top=8):
-        """Emotes I can use here: seen from 2+ people lately, never sub emotes."""
+        """Emotes I can use here: seen from 2+ people lately, never sub emotes, and (by default)
+        only ones that render for everyone - else chat just sees the word 'ICANT'."""
         cut = self.clock() - window
         ranked = []
         for name, uses in self.emote_seen.items():
             uses[:] = [u for u in uses if u[0] >= cut]
             who = {u for _, u in uses}
-            if name not in self.sub_emotes and len(who) >= people:
+            if name not in self.sub_emotes and len(who) >= people and self.renders(name):
                 ranked.append((len(uses), name))
         return [n for _, n in sorted(ranked, reverse=True)[:top]]
 

@@ -30,8 +30,9 @@ ENDERS = {"kekw": "laugh", "icant": "laugh", "lul": "laugh", "lulw": "laugh", "o
           "lmao": "laugh", "lmfao": "laugh", "lol": "laugh", "huh": "shock", "wtf": "shock", "wow": "shock",
           "kreygasm": "food", "sadge": "sad", "wutface": "cringe"}
 # what I'd post for each mood if the chat isn't using a fitting emote
-DEFAULT = {"laugh": ["ICANT", "KEKW", "😹"], "shock": ["HUH"], "cringe": ["😭"], "sad": ["🥀"],
-           "hype": ["W", "Pog"], "food": ["Kreygasm"], "awkward": ["💀"]}
+DEFAULT = {"laugh": ["ICANT", "KEKW", "LUL", "😹"], "shock": ["HUH", "WutFace", "😳"], "cringe": ["😭"],
+           "sad": ["🥀", "BibleThump"], "hype": ["W", "Pog", "🔥"], "food": ["Kreygasm"], "awkward": ["💀"]}
+# (BTTV/7TV ones like ICANT / HUH / Pog are only used when twitch_third_party_emotes is on)
 HATE = {"black", "white", "asian", "mexican", "indian", "arab", "arabian", "saudi", "jew", "jewish", "muslim",
         "immigrant", "illegal", "retard", "middle-eastern", "race", "racist", "culture"}
 
@@ -109,8 +110,17 @@ def pick_emote(mood, room, mine=(), lines=()):
             if ch in l.text and EMOJI_MOOD[ch] == mood and ch in (mine or ()):
                 counts[ch] = counts.get(ch, 0) + 1
     ranked = sorted(counts, key=counts.get, reverse=True)
-    options = ranked + [e for e in DEFAULT.get(mood, []) if e in usable or not e.isalpha() or e in ("W", "HUH")
-                        or e.lower() in _CANON]
+    native_only = getattr(room, "native_only", False)
+    renders = getattr(room, "renders", lambda e: True)
+
+    def ok_default(e):
+        if not any(ch.isalnum() for ch in e) or e == "W":
+            return True                                  # emoji / plain "W" always show fine
+        if native_only:
+            return renders(e)                            # Twitch global only (LUL, WutFace, Kreygasm...)
+        return e in usable or e in ("HUH",) or e.lower() in _CANON
+
+    options = ranked + [e for e in DEFAULT.get(mood, []) if ok_default(e)]
     for e in options:
         if e != last and e not in getattr(room, "sub_emotes", set()):
             return e
