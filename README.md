@@ -125,12 +125,19 @@ someone asks chat a question ("anyone played this?"), chat is on a topic I've re
 2 per 15 min in someone else's chat, 4 at home. Plain chat ("good so far", "let sam drive") never gets a reply.
 Tune it in config.json: `twitch_moment_*`, `twitch_budget_15min_*`, `twitch_topic_min_sem`.
 
-**When it speaks up, it uses MY real words (Evidence-Transport again).** At a moment, the algorithm
-finds up to 5 of my real messages that fit what chat is saying, the AI only picks a number or 0
-(asked 3 times, 2 must agree - "none" is the default), and my exact words are sent. None fit ->
-one sentence built only from those messages (every word checked). That fails -> silence.
-A message of mine is never reused in the same channel that stream. Answers to questions use "Replying to @x".
-It waits like it's typing (1-5s) and drops an uninvited reply if 6+ messages came in meanwhile.
+**When it speaks up, it's grounded in the TWITCH CHAT - same architecture, different source.**
+My own chat history is never in that prompt. `twitch/chatflow.py`:
+1. pertinent chat: reactions/emotes/bots dropped, two searches (meaning + rare words) over recent chat -> up to 6 numbered lines
+2. stasis gate: 3+ people, the meaning scores agree; touchy topics (sex, race, religion, politics, drugs...) -> stays out
+3. the AI picks the lines + a reaction (agree / joke / answer / skip) - 3 votes, 2 must agree, skip wins ties
+4. one short line from those lines, in my learned style (`memory/style.md`) + personality
+5. word check (nothing chat didn't say - no new names/numbers), never about itself, "makes sense?" vote (2 of 3)
+Anything fails -> silence. In someone else's chat it starts in **shadow mode** (`twitch_shadow_guest`):
+speaking up is only logged as 🫥 until you've read the log and turn it off.
+
+**Its voice.** `tools/learn_style.py` learns how I type from my messages (stats + word lists only, never the
+messages) -> `memory/style.md`. `memory/personality.md` is the attitude: deadpan, quick, light teasing.
+In public it's just "i" - never names me, doesn't bring up being an AI (honest if someone sincerely asks).
 
 **Emotes.** It learns the emotes a chat actually uses (2+ people, last 30 min) and may use one -
 never the streamer's sub emotes (Twitch marks them). Waves are joined with the room's own emote.

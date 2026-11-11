@@ -5,6 +5,7 @@
   * nothing is saved to your own Winter history; strangers never see your private Winter chats
   * personality comes from memory/personality.md
 """
+import json
 import re
 import threading
 from collections import OrderedDict
@@ -15,6 +16,15 @@ from twitch.rules import chat_line
 from twitch.humanize import humanize
 
 AI_ROUTES = {"general", "ai_no_evidence"}
+# who-am-i questions in public chat: just my name. AI only when sincerely asked. Tech details stay private.
+PUBLIC_FACTS = {
+    "AI_NAME": "{name}. u?",
+    "AI_DISCLOSURE": "yeah its an ai account",
+    "AI_OWNER": "thats private 🙏",
+    "AI_MODEL": "thats private 🙏",
+    "AI_STORAGE": "thats private 🙏",
+    "AI_EMBEDDING": "thats private 🙏",
+}
 
 SELF_ASK = {
     "silence": ("(chat went quiet. say ONE short casual thing to get it going again, about what people were "
@@ -96,33 +106,31 @@ class Brain:
             self.chatters.popitem(last=False)
         return a
 
-    def knows(self, text):
-        """One of MY real messages that's clearly about what chat is saying, or None.
-        Strict on purpose: the rarest word must match, it must be me talking (not a question),
-        and it must be close in meaning. Private topics never count."""
-        key = (text or "").strip().lower()
+    def topic(self, text, room=None, line=None):
+        """Is chat having one real conversation around this message? (Twitch chat only, never my data)
+        Builds the numbered chat lines + runs the stasis gate. Cached for speak_up."""
+        from twitch import chatflow as F
+        if room is None:
+            return False
+        line = line or next((l for l in reversed(room.lines) if l.text == text and not l.is_bot), None)
+        if line is None:
+            return False
+        key = (room.channel, line.ts, line.user)
         if key in self._known:
-            return self._known[key]
-        found = None
+            return self._known[key][0]
+        embed = getattr(getattr(self._transport(), "searcher", None), "embedder", None)
         try:
-            from transport import classify
-            private = getattr(self.c, "private_topics", [])
-            searcher = getattr(self._transport(), "searcher", None)
-            if searcher is not None and not classify.is_private(text, private):
-                with self.gpu:
-                    cands = searcher.search(text)
-                for x in cands[:5]:
-                    if (x.get("has_anchor") and x.get("first_person") and not x.get("is_question")
-                            and x.get("sem", 0) >= self.c.twitch_topic_min_sem
-                            and not classify.is_private(x.get("text", ""), private)):
-                        found = x["text"][:160]
-                        break
-        except Exception:
-            found = None
-        self._known[key] = found
+            with self.gpu:
+                lines, sims, vecs = F.thread(room, line, embed)
+            ok, why = F.one_conversation(lines, sims, vecs, self.c, F.room_names(room))
+        except Exception as e:
+            lines, ok, why = [line], False, f"error: {e}"
+        self._known[key] = (ok, lines, why)
         if len(self._known) > 500:
             self._known.popitem(last=False)
-        return found
+        return ok
+
+    knows = topic                            # old name
 
     def _transport(self):
         a = next(iter(self.chatters.values()), None) or self.make_adapter(ChatterMemory(0))
@@ -170,6 +178,8 @@ class Brain:
             line = humanize(line, max_words=words, never=self.personality.never, emojis=allowed)
         if line and is_skip(line):
             return None                      # the AI decided this didn't need an answer
+        if line and re.search(rf"\b{re.escape(self.c.persona_name.lower())}\b", line.lower()):
+            return None                      # never name the owner in chat
         if line and room is not None and repeats(line, room.bot_lines(5)):
             return None                      # saying the same thing twice reads like a bot
         return line or None
@@ -179,6 +189,8 @@ class Brain:
         a = self._adapter(user)
         is_owner = user in {h.lower() for h in self.c.owner_handles}
         key, data = a.router.route(question)
+        if key in PUBLIC_FACTS and getattr(self.c, "public_persona", False):
+            return PUBLIC_FACTS[key].format(name=self.c.agent_label), "fact"
         if data and data.get("perspective") == "owner" and not is_owner:
             # "what's my name" from a stranger is about THEM, not Maddi
             line_ = f"ur {name} lol" if key == "USER_NAME" else "idk that one's on u lol"
@@ -215,51 +227,55 @@ class Brain:
         return self._polish(line, "general", room)
 
     def speak_up(self, room, line, name=None):
-        """A moment happened (question to chat / topic I know). My real words first.
-        -> (line or None, route)  route: my words | built from my words | <why it stayed quiet>"""
-        from twitch import moments as M
-        from transport import synth as S
-        tr = self._transport()
-        searcher, llm = getattr(tr, "searcher", None), getattr(tr, "llm", None)
-        private = getattr(self.c, "private_topics", [])
-        try:
-            with self.gpu:
-                cands = M.candidates(searcher, line.text, private, room.used_quotes,
-                                     self.c.twitch_topic_min_sem - 0.05)
-        except Exception:
-            cands = []
-        self.last_context = f"my messages that fit: {len(cands)}"
-        if not cands:
-            return None, "none of my messages fit"
+        """A moment happened. Same architecture as answering about me, but the source of truth is
+        THIS chat: numbered chat lines -> AI picks lines + reaction -> one line -> checks. Else silence.
+        -> (line or None, route)"""
+        from twitch import chatflow as F
+        key = (room.channel, line.ts, line.user)
+        if not self.topic(line.text, room, line):
+            why = self._known.get(key, (0, 0, "not one conversation"))[2]
+            self.last_context = f"stayed quiet: {why}"
+            return None, why
+        _, lines, _ = self._known[key]
+        llm = getattr(self._transport(), "llm", None)
         if llm is None:
-            self.last_context += "\n" + "\n".join(f"[{c['num']}] {c['display']}" for c in cands)
+            self.last_context = "chat lines:\n" + F.numbered(lines)
             return None, "no AI to pick"
-        chat = room.as_text(self.c.twitch_room_lines, line).splitlines()
-        msgs = M.pick_messages(self.c.persona_name, chat, M.focus(room, line), cands)
+        msgs = F.pick_messages(lines)
         with self.gpu:
-            n, votes = M.pick(llm, msgs, len(cands), self.c.twitch_picker_votes)
-        self.last_context = msgs[1]["content"] + f"\nvotes: {votes} -> {n or 'none'}"
-        guest = getattr(room, "guest", False)
-        limit = self.c.twitch_guest_quote_chars if guest else self.c.twitch_max_chars
-        if n:
-            mine = cands[n - 1]["display"]
-            text = chat_line(M.tidy(mine), limit, False, self.c.twitch_block_words)
-            if text and not repeats(text, room.bot_lines(5)):
-                room.used_quotes.add(mine.lower())
-                return text, "my words"
-        # last resort: one sentence built only from those messages (every word checked)
+            react, picked, votes = F.pick(llm, msgs, len(lines), self.c.twitch_picker_votes)
+        self.last_context = F.numbered(lines) + f"\nvotes: {votes} -> {react} {picked}"
+        if react == "skip":
+            return None, "skip (votes)"
+        chosen = [lines[i - 1] for i in picked]
+        from core.style import load as load_style
+        style = load_style(self.c.style_file) or self.c.style_words
         try:
             with self.gpu:
-                raw = S.synthesize(llm, line.text, cands, self.c.persona_name, self.c.agent_label,
-                                   self.c.synth_max_words)
-            ok = S.check(raw, cands, line.text, self.c.persona_name, self.c.synth_max_words)
+                raw = json.loads(llm.chat_json(F.write_messages(style + "\n" + self.personality.prompt, chosen, react),
+                                               F.LINE_SCHEMA, max_tokens=40, temperature=0.7)).get("line", "")
         except Exception:
-            ok = None
-        if ok:
-            text = chat_line(M.tidy(ok), limit, False, self.c.twitch_block_words)
-            if text and not repeats(text, room.bot_lines(5)) and not self.personality.breaks_rules(text):
-                return text, "built from my words"
-        return None, "none of my messages fit"
+            raw = ""
+        self.last_context += f"\nwrote: {raw!r}"
+        text = chat_line(raw, self.c.twitch_max_chars, False, self.c.twitch_block_words)
+        if not text:
+            return None, "nothing written"
+        from transport.checker import claim_guard
+        slang = set(re.findall(r"[a-z']+", style.lower()))
+        if not F.grounded(text, chosen, slang):
+            return None, "made something up (word check)"
+        if F.about_me(text) or not claim_guard(text):
+            return None, "talked about itself"
+        text = self._polish(text, "general", room)
+        if not text:
+            return None, "didn't pass the filters"
+        if self.c.twitch_sense_check:
+            with self.gpu:
+                ok = F.makes_sense(llm, chosen, text)
+            self.last_context += f"\nmakes sense: {ok}"
+            if not ok:
+                return None, "didn't make sense (votes)"
+        return text, "from chat"
 
     def break_silence(self, room):
         return self.self_line(room, "silence")

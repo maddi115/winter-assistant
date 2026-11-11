@@ -43,6 +43,8 @@ def build_brain(config, no_ai=False):
 
     config.max_reply_tokens = config.twitch_max_reply_tokens
     config.silent_when_unsure = True
+    config.public_persona = True            # just "i": never names the owner, doesn't bring up being an AI
+    config.agent_label = "winter"
     config.debug = False
     if no_ai:
         config.transport_mode = "algo"
@@ -55,6 +57,7 @@ def build_brain(config, no_ai=False):
     transport, style = build_transport(config, storage, llm)
     if ai:
         ai.style = style
+    learn_style_once(config, transport)
 
     class NoAI:
         def generate(self, *_):
@@ -65,7 +68,7 @@ def build_brain(config, no_ai=False):
                  ai=ai, base_context=TWITCH_CONTEXT)
 
 
-MOMENTS = {"question to chat", "i know this"}   # speaking up uninvited -> the AI reads chat and may skip
+MOMENTS = {"question to chat", "chat on one topic"}   # speaking up uninvited -> grounded in the chat, may skip
 JOIN_IN = MOMENTS | {"chat wave"}               # count against the budget + gap
 THREAD = {"direct", "said my name", "question to chat"}   # answering someone -> "Replying to @x"
 
@@ -123,11 +126,23 @@ def context_block(brain, route):
     """The recent chat (and notes) the AI saw for this reply, indented for the terminal."""
     if not SHOW_CONTEXT:
         return ""
-    if route not in ("general", "ai_no_evidence", "chime", "ai_pick", "ai_synth", "my words",
-                     "built from my words", "none of my messages fit", "no AI to pick"):
+    if route in ("algo", "private", "fact", "reflex", "wave", "stranger_self", "idk_gate", "idk_empty",
+                 "idk_votes", "algo_fallback"):
         return "\n          (no AI context - answered from rules / my messages)"
     body = brain.last_context or "(empty)"
     return "\n          ┌ what the AI saw:\n" + "\n".join("          │ " + l for l in body.splitlines())
+
+
+def learn_style_once(config, transport):
+    """memory/style.md = how I type, learned from my messages (stats only). Made once if missing."""
+    if Path(config.style_file).exists() or transport is None:
+        return
+    try:
+        from core import style
+        s = style.write([r["text"] for r in transport.searcher.store.rows], config.style_file)
+        print(f"✍️  learned how I type from {s['messages']} messages -> {config.style_file}")
+    except Exception as e:
+        print(f"⚠️  couldn't learn style: {e}")
 
 
 def log(s):
@@ -224,8 +239,10 @@ async def live(config, brain):
     me = SelfTalk(config, clock=time.time)
     log(f"🧠 remembering {len(home_people.people)} chatters from my own channel")
     for login, room in rooms.items():
+        shadow = config.twitch_shadow_guest if room.guest else config.twitch_shadow_home
         log(f"   #{login}: " + ("GUEST - answers when talked to, rarely joins in, never starts talking"
-                              if room.guest else "HOME - chats freely"))
+                              if room.guest else "HOME - chats freely")
+            + ("  · speaking up = SHADOW (logged 🫥, not sent)" if shadow else ""))
 
     def people_for(room):
         return guest_people if room.guest else home_people
@@ -330,6 +347,12 @@ async def live(config, brain):
             if why in JOIN_IN and moved_on(room, line, config.twitch_stale_lines):
                 log(f"🕰️  {m.user}: {q[:60]} -> chat moved on, not sending: {reply}")
                 continue
+            shadow = config.twitch_shadow_guest if room.guest else config.twitch_shadow_home
+            if shadow and why in JOIN_IN:
+                log(f"🫥 #{m.channel} would say (shadow, not sent): {reply}   [{why} · {route}]"
+                    + context_block(brain, route))
+                mark_spoken(room, why)          # act like it spoke, so the budget behaves the same
+                continue
             if config.twitch_typing_delay:
                 await asyncio.sleep(typing_delay(reply, time.time() - t0))
             sent, err = await say(m.channel, reply, m.message_id if why in THREAD else None)
@@ -391,7 +414,7 @@ def main():
     try:
         asyncio.run(live(config, brain))
     except KeyboardInterrupt:
-        print("\n👋 agentWinter left chat")
+        print("\n👋 winter left chat")
 
 
 if __name__ == "__main__":

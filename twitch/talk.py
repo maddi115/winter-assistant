@@ -10,7 +10,7 @@ otherwise only sometimes, and never take over the chat.
   1-on-1        only one person chatting lately (home)                       -> usually (the AI may skip)
   everything else -> only at a real MOMENT, never at random:
      question to chat   "anyone played this?" "who's winning?"               -> maybe (AI may skip)
-     i know this        chat is on a topic I've really talked about          -> maybe (AI may skip)
+     chat on one topic  3+ people on the same thing (checked on the chat)    -> maybe (AI may skip)
      chat wave          4+ people spam the same reaction                     -> maybe one 😹 / 🥀 / W
   ...and only within a budget: 2 per 15 min as a guest, 4 at home, plus a gap between them
 Starting a conversation on my own (silence, welcome back) lives in twitch/self_talk.py.
@@ -43,6 +43,13 @@ def wave_reply(mood_, allowed):
     return None
 
 
+def _on_topic(knows, text, room):
+    try:
+        return knows(text, room)
+    except TypeError:                       # simple knows(text) from tests / older callers
+        return knows(text)
+
+
 def meow_or_not(text, room, c, guest, rng):
     """Meow back sometimes, not every time - and never meow-spam."""
     gap = c.twitch_meow_gap if guest else c.twitch_meow_gap_home
@@ -55,7 +62,8 @@ def meow_or_not(text, room, c, guest, rng):
 
 def decide(m: Incoming, bot: str, c, room, rng=random.random, knows=None, emojis=None):
     """-> (text to answer or None, reason).
-    knows(text) -> one of my real messages about this topic, or None (only asked when a moment is possible)."""
+    knows(text, room) -> True if chat is having one real conversation around this message
+    (the Twitch chat itself - never my own data). Only asked when a moment is possible."""
     guest = getattr(room, "guest", False)
     direct = question_for_bot(m, bot, c.twitch_prefix, c.twitch_ignore_users)
     if direct is not None:
@@ -116,8 +124,8 @@ def decide(m: Incoming, bot: str, c, room, rng=random.random, knows=None, emojis
     # only a real moment can make me speak up - never a dice roll on random chat
     if asks_chat(text):
         moment, chance = "question to chat", c.twitch_moment_question
-    elif knows is not None and len(text.split()) >= 3 and knows(text):
-        moment, chance = "i know this", c.twitch_moment_topic
+    elif knows is not None and len(text.split()) >= 3 and _on_topic(knows, text, room):
+        moment, chance = "chat on one topic", c.twitch_moment_topic
     else:
         return None, "no reason to jump in"
     if speed >= c.twitch_busy_mpm:

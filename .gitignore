@@ -50,3 +50,4 @@ dump.rdb
 twitch_token.json
 twitch_chatters.json
 twitch_chatters.json.tmp
+memory/style.md

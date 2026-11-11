@@ -60,6 +60,8 @@ class Config:
     stream_chat: bool = False         # true = stream word by word, but skips the "talks about me" check
     chat_context: str = ""            # extra line for the chat AI (the Twitch bot sets this)
     personality_file: str = "memory/personality.md"   # how I talk (edit freely)
+    style_file: str = "memory/style.md"   # how I type, learned from my messages (tools/learn_style.py)
+    public_persona: bool = False      # true (Twitch): just "i" - never names the owner, doesn't bring up being an AI
     silent_when_unsure: bool = False  # true = say nothing instead of "lol nah." when the AI made something up
 
     # Twitch bot (python tools/twitch_bot.py)
@@ -121,6 +123,21 @@ class Config:
     twitch_moment_free_ai: bool = False   # question to chat + none of my messages fit -> AI writes anyway (off = silence)
     twitch_picker_votes: int = 3          # my-words picker: asked 3 times, 2 must agree on the same message
     twitch_consider_gap: int = 60         # a moment I stayed quiet on -> wait this long before considering another
+    # speaking up is grounded in the TWITCH CHAT (twitch/chatflow.py) - my own chats never go in that prompt
+    twitch_thread_people: int = 3         # a conversation needs at least this many different people
+    twitch_chat_stability: float = 0.5    # stasis gate on the chat lines (meaning scores agree)
+    twitch_chat_confidence: float = 0.3
+    twitch_sense_check: bool = True       # final "does this make sense right now?" vote (2 of 3)
+    twitch_shadow_guest: bool = True      # someone else's chat: speaking up is only LOGGED (🫥), not sent - review first
+    twitch_shadow_home: bool = False      # my own chat: speaking up is sent
+    # never speak up (uninvited) when chat is on these - too easy to go wrong in someone else's chat
+    twitch_avoid_topics: List[str] = field(default_factory=lambda: [
+        "gay", "lesbian", "straight", "trans", "sex", "sexy", "horny", "peg", "pegging", "porn", "nude", "nudes",
+        "strip", "dick", "pussy", "boobs", "hoe", "slut", "rape", "race", "racist", "black", "white", "asian",
+        "mexican", "indian", "arab", "jew", "jewish", "muslim", "christian", "religion", "god", "politics",
+        "trump", "biden", "democrat", "republican", "election", "vote", "weed", "drugs", "drunk", "high",
+        "cocaine", "kill", "die", "dead", "suicide", "gun", "shoot", "fat", "ugly", "skinny", "weight",
+        "autism", "autistic", "retard", "middle-eastern", "immigrant", "illegal"])
     # meows, calmer
     twitch_meow_chance_home: float = 0.4  # chance to meow back at all (home)
     twitch_meow_chance_guest: float = 0.2 # ...in someone else's chat

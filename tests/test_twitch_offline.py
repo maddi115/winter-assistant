@@ -296,7 +296,7 @@ out, _ = b4.reply("viewer1", "Viewer1", "winter u play l4d2?", rr, cur)
 P = SEE.prompts[-1]
 check("prompt has the recent chat", "Bob: who plays l4d2" in P, P[-300:])
 check("current message isn't repeated in the history", "Viewer1: winter u play" not in P)
-check("prompt has the personality file", "never say:" in P and "all lowercase" in P)
+check("prompt has the personality file", "never say:" in P and "deadpan" in P)
 check("reply is short + human", out == "hey l4d2 is honestly so fun, i could play it all day and night with the boys",
       out)
 SEE.out = "As an AI, I can't play games. But it looks fun."
@@ -513,7 +513,7 @@ check("'hahhahahahaah' is a reaction", qsay("v3", "hahhahahahaah")[1] == "just a
 check("'huh?' isn't a question to chat", not asks_chat("huh?"))
 check("'anyone played this before?' is", asks_chat("anyone played this before?"))
 said = lambda t: "I like eating burritos with chips" if "burrito" in t else None
-check("topic I really talked about -> moment", qsay("v4", "chat whats ur fav burrito spot", knows=said)[1] in ("i know this", "question to chat"))
+check("topic I really talked about -> moment", qsay("v4", "chat whats ur fav burrito spot", knows=said)[1] in ("chat on one topic", "question to chat"))
 rq2 = Room("w", clock=lambda: qc[0], guest=True)
 for k, t in enumerate(["KEKW", "ICANT", "LMAO", "KEKW KEKW"]):
     rq2.add(f"p{k}", "p", t)
@@ -552,76 +552,104 @@ for w in ["mvngoDizzy", "jenn1eDaisyGG", "jlleiEating", "gachiBASS", "samEYES"]:
     check(f"'{w}' looks like an emote even without Twitch marking it", is_reaction(w))
 check("normal words don't", not is_reaction("handsome") and not is_reaction("iPhone stuff is cool"))
 
-print("\nS. Speaking up uses MY real words")
-from twitch import moments as MO
+print("\nS. Speaking up is grounded in THIS chat (never my own chat history)")
+from twitch import chatflow as CF
+import numpy as np
 
 
-class FakeSearcher:
-    def __init__(self, rows):
-        self.rows = rows
-
-    def search(self, text):
-        return [dict(r) for r in self.rows]
-
-
-ROWS = [
-    {"text": "he shoves ads down our throats for content..", "first_person": False, "is_question": False, "has_anchor": True, "sem": 0.7},
-    {"text": "I think he just does it for the content tbh", "first_person": True, "is_question": False, "has_anchor": True, "sem": 0.72},
-    {"text": "do you guys like content?", "first_person": True, "is_question": True, "has_anchor": True, "sem": 0.8},
-    {"text": "I smoke weed for content", "first_person": True, "is_question": False, "has_anchor": True, "sem": 0.7},
-    {"text": "I make content every day on twitch", "first_person": True, "is_question": False, "has_anchor": True, "sem": 0.3},
-]
-cs = MO.candidates(FakeSearcher(ROWS), "he just does it for the content", ["weed"], set(), 0.5)
-check("candidates: only me talking, not questions, not private, close enough",
-      [c["display"] for c in cs] == ["I think he just does it for the content tbh."], [c["display"] for c in cs])
-check("candidates: already-used quotes are skipped",
-      MO.candidates(FakeSearcher(ROWS), "content", ["weed"], {"i think he just does it for the content tbh."}, 0.5) == [])
-check("candidates: private chat line -> nothing", MO.candidates(FakeSearcher(ROWS), "who smokes weed", ["weed"], set(), 0.5) == [])
-
-
-class VoteLLM:
-    def __init__(self, picks, synth=None):
-        self.picks, self.synth, self.calls = list(picks), synth, 0
+class ChatLLM:
+    """Fake model: picker answers, then the writer line, then the sense votes."""
+    def __init__(self, react="joke", lines=(1, 2, 3, 4), line="$50 parking... yeah no", ok=True):
+        self.react, self.lines, self.line, self.ok, self.seen = react, list(lines), line, ok, []
 
     def chat_json(self, messages, schema, max_tokens=20, temperature=0.0):
-        self.calls += 1
-        if "pick" in schema.get("properties", {}):
-            return json.dumps({"pick": self.picks.pop(0) if self.picks else 0})
-        return json.dumps({"answer": self.synth or ""})
+        self.seen.append(messages)
+        props = schema.get("properties", {})
+        if "react" in props:
+            return json.dumps({"lines": self.lines, "react": self.react})
+        if "line" in props:
+            return json.dumps({"line": self.line})
+        return json.dumps({"ok": self.ok})
 
 
-check("picker: 2 of 3 agree -> that one", MO.pick(VoteLLM([1, 1, 0]), [], 3)[0] == 1)
-check("picker: all different -> none", MO.pick(VoteLLM([1, 2, 3]), [], 3)[0] == 0)
-check("picker: out-of-range numbers count as none", MO.pick(VoteLLM([9, 9, 1]), [], 3)[0] == 0)
-check("tidy: 'content..' -> 'content.'", MO.tidy("for content..") == "for content.")
+class FakeEmbed:
+    def encode_query(self, t):
+        return self._v(t)
+
+    def encode_docs(self, ts):
+        return np.stack([self._v(t) for t in ts])
+
+    def _v(self, t):
+        v = np.zeros(32)
+        for w in CF.topic_words(t):
+            v[hash(w) % 32] += 1
+        v[31] += 0.2
+        return v / np.linalg.norm(v)
 
 
-class TrAdapter(FakeAdapter):
-    pass
+def traffic_room():
+    r = Room("scentlessoppa", guest=True)
+    for u, t in [("richieflair", "this is the worse time to drive here"), ("izzwizzy", "OOOOOH"),
+                 ("richieflair", "NY traffic is worse"), ("cm_nyc", "Deez nuts sam"),
+                 ("purgatorygamer758", "Driving in Chicago freeway traffic felt like hell too"),
+                 ("the7man360", "$50 parking traffic")]:
+        r.add(u, u, t)
+    return r
 
 
-def brain_with(llm, rows):
-    b = brain_mod.Brain(Config(owner_handles=[]), TrAdapter, ai=None, base_context="BASE")
-    b._transport = lambda: type("T", (), {"searcher": FakeSearcher(rows), "llm": llm})()
+def brain_chat(llm, embed=None):
+    b = brain_mod.Brain(Config(owner_handles=[]), FakeAdapter, ai=None, base_context="BASE")
+    b._transport = lambda: type("T", (), {"searcher": type("S", (), {"embedder": embed})(), "llm": llm})()
     return b
 
 
-rr6 = Room("scentlessoppa", guest=True)
-rr6.add("viewer1", "Viewer1", "sam is so loud"); trig = rr6.add("viewer2", "Viewer2", "he just does it for the content")
-b6 = brain_with(VoteLLM([1, 1, 1]), ROWS)
-said6, route6 = b6.speak_up(rr6, trig, "Viewer2")
-check("moment -> my exact words", (said6, route6) == ("I think he just does it for the content tbh.", "my words"), (said6, route6))
-check("...and that quote won't be used again here", b6.speak_up(rr6, trig, "Viewer2")[1] == "none of my messages fit")
-check("the picker saw what I'm reacting to", "Viewer2: he just does it for the content" in b6.last_context)
-rr7 = Room("scentlessoppa", guest=True); trig7 = rr7.add("viewer2", "Viewer2", "he just does it for the content")
-b7 = brain_with(VoteLLM([0, 0, 0], synth="I think he does it for the content [1]"), ROWS)
-check("none picked -> a sentence built ONLY from my words", b7.speak_up(rr7, trig7, "Viewer2") ==
-      ("I think he does it for the content", "built from my words"), b7.speak_up(rr7, trig7, "Viewer2"))
-rr8 = Room("scentlessoppa", guest=True); trig8 = rr8.add("viewer2", "Viewer2", "he just does it for the content")
-b8 = brain_with(VoteLLM([0, 0, 0], synth="he is a total clown for content [1]"), ROWS)
-check("built sentence with words I never said -> silence", b8.speak_up(rr8, trig8, "Viewer2")[0] is None)
-b9 = brain_with(VoteLLM([1, 1, 1]), [])
-check("nothing of mine fits -> silence (no free AI)", b9.speak_up(rr8, trig8, "Viewer2") == (None, "none of my messages fit"))
+rt = traffic_room(); trig = rt.lines[-1]
+lines, sims, vecs = CF.thread(rt, trig, FakeEmbed())
+check("pertinent chat drops reactions ('OOOOOH') and keeps the topic lines",
+      all(l.text != "OOOOOH" for l in lines) and lines[-1] is trig and len(lines) >= 3, [l.text for l in lines])
+ok_, why_ = CF.one_conversation(lines, sims, vecs, Config(), CF.room_names(rt))
+check("3+ people on traffic -> one conversation", ok_, why_)
+r1 = Room("x", guest=True); t1 = r1.add("cm_nyc", "cm", "Is my turn now")
+l1, s1, v1 = CF.thread(r1, t1, FakeEmbed())
+check("'Is my turn now' alone -> not a conversation", not CF.one_conversation(l1, s1, v1, Config())[0])
+r2 = Room("x", guest=True)
+for k, t in enumerate(["1", "2", "2.1", "I saw 1"]):
+    r2.add(f"c{k}", "c", t)
+l2, s2, v2 = CF.thread(r2, r2.lines[-1], FakeEmbed())
+check("people counting ('I saw 1') -> not a conversation", not CF.one_conversation(l2, s2, v2, Config())[0])
+
+b1 = brain_chat(ChatLLM(), FakeEmbed())
+said, route = b1.speak_up(rt, trig, "the7man360")
+check("traffic convo -> one line grounded in chat", (said, route) == ("$50 parking... yeah no", "from chat"), (said, route))
+prompt_text = json.dumps(b1._transport().llm.seen)
+check("my own chat history is NOT in any prompt", "tortilla" not in prompt_text and "burrito" not in prompt_text)
+check("the prompts only have this chat's lines", "Chicago freeway" in prompt_text)
+check("picker skip -> silence", brain_chat(ChatLLM(react="skip"), FakeEmbed()).speak_up(traffic_room(), traffic_room().lines[-1], "x")[0] is None)
+rr = traffic_room()
+check("made-up facts (new name / number) -> silence",
+      brain_chat(ChatLLM(line="i paid $80 in Boston last week"), FakeEmbed()).speak_up(rr, rr.lines[-1], "x") ==
+      (None, "made something up (word check)"))
+rr = traffic_room()
+check("a claim about my own life -> silence",
+      brain_chat(ChatLLM(line="i drove there yesterday tbh"), FakeEmbed()).speak_up(rr, rr.lines[-1], "x")[0] is None)
+rr = traffic_room()
+check("'does this make sense?' votes no -> silence",
+      brain_chat(ChatLLM(ok=False), FakeEmbed()).speak_up(rr, rr.lines[-1], "x") == (None, "didn't make sense (votes)"))
+rr = traffic_room()
+check("never names the owner", brain_chat(ChatLLM(line="maddi hates traffic"), FakeEmbed()).speak_up(rr, rr.lines[-1], "x")[0] is None)
+rg = Room("scentlessoppa", guest=True)
+for u, t in [("a", "approachable until sam explodes"), ("b", "Wait Sam are you an extrovert"),
+             ("c", "Sam is petite like a puppy"), ("d", "Sam is gay off stream i can confirm")]:
+    rg.add(u, u, t)
+lg, sg, vg = CF.thread(rg, rg.lines[-1], FakeEmbed())
+okg, whyg = CF.one_conversation(lg, sg, vg, Config())
+check("touchy topics (sexuality, race, drugs...) -> stays out of it", not okg and "touchy" in whyg, whyg)
+check("'whitening' isn't the word 'white'", CF.touchy([type("L", (), {"text": "teeth whitening"})()], ["white"]) == "")
+check("an opinion word is fine ('traffic is wild')", CF.grounded("traffic is wild", lines))
+check("a new name isn't ('Boston traffic')", not CF.grounded("Boston traffic", lines))
+check("picker: 2 of 3 must agree, skip wins ties", CF.pick(type("L", (), {"chat_json": lambda self, *a, **k: next(it)})(),
+      [], 3)[0] == "skip" if (it := iter([json.dumps({"lines": [1], "react": "joke"}), json.dumps({"lines": [], "react": "skip"}),
+      json.dumps({"lines": [2], "react": "agree"})])) else False)
 
 print("\nT. The room's emotes")
 re_ = Room("scentlessoppa", guest=True)
@@ -675,6 +703,35 @@ mq2 = msg("who is winning this?", user="v2"); rv2.add(mq2.user, mq2.name, mq2.te
 check("stayed quiet on it -> short pause only", decide(mq2, "winterrs0", Config(), rv2, rng=lambda: 0.0)[1] == "thought about it recently")
 qc[0] += Config().twitch_consider_gap + 1
 check("a minute later a new moment is possible again", decide(mq2, "winterrs0", Config(), rv2, rng=lambda: 0.0)[1] == "question to chat")
+
+print("\nX. Public persona: just 'i', learned style, honest only when asked")
+from core.ai_engine import persona_prompt
+from core import style as ST
+cp = Config(); cp.public_persona = True; cp.agent_label = "winter"
+pp_ = persona_prompt(cp, "")
+check("public prompt never names the owner as 'me'", "You are winter" in pp_ and "Maddi's AI" not in pp_)
+check("doesn't bring up being an AI, honest if sincerely asked", "Don't bring up being an AI" in pp_ and "sincerely asks" in pp_)
+st = ST.learn(["u good bro", "idk tbh", "wtf is that", "shit i didnt know", "i fucking told u", "LMAO no", "ok 🙏", "ok 🙏",
+               "ok 🙏", "ok 🙏", "ok 🙏", "u r funny", "ur mom", "dude what"] * 3)
+md = ST.to_markdown(st)
+check("style learns my real slang (u, idk, tbh...)", "u" in st["slang"] and "idk" in st["slang"] and "tbh" in st["slang"], st["slang"])
+check("style file has stats only, never my messages", "i fucking told u" not in md and "ur mom" not in md)
+check("style learns emojis I use", "🙏" in md)
+from core.integrations.memory_injector import Vessels, Router
+
+
+class RouterAdapter(FakeAdapter):
+    def __init__(self, mem):
+        super().__init__(mem)
+        self.router = Router(Vessels())
+
+
+bp = brain_mod.Brain(cp, RouterAdapter)
+check("'whats your name' -> just the name", bp.reply("v", "V", "whats your name")[0] == "winter. u?")
+check("'are you a bot?' sincerely -> honest, short", bp.reply("v", "V", "are you a bot")[0] == "yeah its an ai account")
+check("'who made you' -> private", bp.reply("v", "V", "who made you")[0] == "thats private 🙏")
+P2 = ld("memory/personality.md")
+check("personality: deadpan, no corny catchphrases", "deadpan" in P2.prompt and "i ran the numbers" in P2.never)
 
 print("\nF. Login (device code flow, faked)")
 calls = []
