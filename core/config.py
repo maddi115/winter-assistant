@@ -172,6 +172,7 @@ class Config:
         "trump", "biden", "democrat", "republican", "election", "vote", "weed", "drugs", "drunk", "high",
         "cocaine", "kill", "die", "dead", "suicide", "gun", "shoot", "fat", "ugly", "skinny", "weight",
         "autism", "autistic", "retard", "middle-eastern", "immigrant", "illegal",
+        "sexual", "sexually", "sexo", "twerk", "twerking", "pervert", "perverts", "assault", "assaulted", "molest",
         "teabag", "tea bag", "teabagging", "ass", "butt", "booty", "panties", "underwear", "thong", "cuck",
         "cucking", "down there", "busst", "bust", "cum", "smell", "smells", "saudi", "arab", "arabian",
         "culture", "wife", "gooner", "simp"])

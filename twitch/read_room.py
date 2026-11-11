@@ -110,6 +110,24 @@ def live(lines, ids, clock_now, c):
     return ""
 
 
+def pick_live(lines, threads, ai_pick, clock_now, c):
+    """Which thread is live is decided by CODE, not the AI (the 9B kept saying 'none' even with 6 people
+    on one thing). Live = 3+ lines, 2+ people, recent, in the newest lines. Newest live thread wins;
+    the AI's own pick wins a tie. -> (index or -1, why not)"""
+    ok, reasons = [], []
+    for i, (_, ids) in enumerate(threads):
+        why = live(lines, ids, clock_now, c)
+        if why:
+            reasons.append(why)
+        else:
+            ok.append(i)
+    if not ok:
+        return -1, ("no live conversation: " + reasons[0]) if reasons else "no conversations, just random lines"
+    if ai_pick in ok and max(threads[ai_pick][1]) >= max(max(threads[i][1]) for i in ok) - 2:
+        return ai_pick, ""
+    return max(ok, key=lambda i: (max(threads[i][1]), len(threads[i][1]))), ""
+
+
 def write_messages(style_prompt, lines, ids, now, stream="", heard=(), emotes=()):
     system = ("You are a regular in this Twitch chat. Write ONE short message (1-10 words) that would come next, "
               "about the marked conversation.\n"
@@ -219,14 +237,12 @@ def look(llm, room, c, style_prompt, emotes=(), personality_prompt="", polish=No
     heard = heard_fn(room) if heard_fn else []
     if len(lines) < 5:
         return None, "not enough real chat", info
-    now, threads, active = read(llm, lines, stream, heard)
-    info.update(now=now, threads=threads, active=active)
+    now, threads, ai_pick = read(llm, lines, stream, heard)
+    active, why = pick_live(lines, threads, ai_pick, room.clock(), c)
+    info.update(now=now, threads=threads, active=active, ai_pick=ai_pick)
     if active < 0:
-        return None, "no live conversation (just greetings / reactions / random)", info
-    about, ids = threads[active]
-    why = live(lines, ids, room.clock(), c)
-    if why:
         return None, why, info
+    about, ids = threads[active]
     thread_lines = [lines[i - 1] for i in ids]
     word = touchy(thread_lines + [type("L", (), {"text": h})() for h in heard], c.twitch_avoid_topics)
     if word:
@@ -312,8 +328,9 @@ def log_block(info, why, said=None):
         out.append(f"│ now: {info['now']}")
     if info.get("threads"):
         out.append("│ threads: " + " · ".join(f"{a} {ids}" for a, ids in info["threads"]))
-        a = info.get("active", -1)
-        out.append("│ active: " + (info["threads"][a][0] if a >= 0 else "none"))
+        a, ai = info.get("active", -1), info.get("ai_pick", -1)
+        out.append("│ live: " + (info["threads"][a][0] if a >= 0 else "none")
+                   + f"   (AI's own pick: {info['threads'][ai][0] if ai >= 0 else 'none'})")
     for raw, sure in info.get("tries", []):
         out.append(f"│ wrote: {raw!r} (sure {sure:.2f})")
     if "explain" in info:
