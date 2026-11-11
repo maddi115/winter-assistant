@@ -179,6 +179,8 @@ Install (once):
 ```bash
 sudo apt-get install -y ffmpeg
 pip install streamlink silero-vad moonshine-voice
-python -m moonshine_voice.download --language en
 ```
+The base model downloads by itself the first time (moonshine-voice's own default is "medium", ~4x the CPU).
+CPU too busy? `"twitch_audio_arch": "tiny"` and/or `"cpu_threads": 1`. Slower than live -> it logs 🐢 and skips ahead.
+`--show-context` also prints `🎧 heard: "..."` so you can see what it caught.
 Dry run: `/said no gloves tonight` pretends the streamer said it.

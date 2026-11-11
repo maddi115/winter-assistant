@@ -2,6 +2,7 @@
 """Twitch bot tests - no Twitch, no Ollama, no GPU.   python tests/test_twitch_offline.py"""
 import asyncio
 import json
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -885,10 +886,27 @@ class _MV:
 
 
 fake_mv.Transcriber = _MV
-fake_mv.get_model_for_language = lambda lang: ("/models/en", 1)
+asked_arch = []
+fake_mv.get_model_for_language = lambda lang, arch=None: (asked_arch.append(arch), ("/models/en", arch))[1]
 sys.modules["moonshine_voice"] = fake_mv
-tx = HE.Transcriber()
-check("uses the new moonshine-voice package", tx.kind == "moonshine-voice" and tx(np.zeros(16000)) == "no gloves tonight")
+tx = HE.Transcriber(arch=Config().twitch_audio_arch)
+check("uses the new moonshine-voice package", tx.kind.startswith("moonshine-voice") and tx(np.zeros(16000)) == "no gloves tonight")
+check("asks for BASE, not its heavy medium default", asked_arch[-1] == 1 and tx.size == "base")
+check("arch names/numbers/None all work", HE.arch_number("tiny") == 0 and HE.arch_number(5) == 5
+      and HE.arch_number(None) == 1 and HE.arch_number("Medium") == 5 and HE.arch_number("junk") == 1)
+from core.embedder import limit_cpu_threads
+limit_cpu_threads(2)
+check("CPU models capped (threads env + no ORT spinning)", os.environ.get("OMP_NUM_THREADS") == "2"
+      and os.environ.get("MOONSHINE_ORT_SINGLE_THREAD") == "1")
+_logs = []
+_h = HE.Hearing("x", Config(), Transcript(60), log=_logs.append)
+_reads = []
+_ff = type("FF", (), {"stdout": type("O", (), {"read": lambda self, n: (_reads.append(n), b"x" * n)[1]})()})()
+_h.keep_up(_ff, 2.0, 100)
+check("fast window: nothing skipped", not _reads and _h.slow == 0)
+for _ in range(3):
+    _h.keep_up(_ff, 17.0, 100)
+check("slow windows: backlog skipped + one warning", len(_reads) == 6 and sum("🐢" in l for l in _logs) == 1)
 check("missing() accepts moonshine-voice", "moonshine-voice" not in HE.Hearing.missing())
 del sys.modules["moonshine_voice"]
 

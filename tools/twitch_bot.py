@@ -265,7 +265,7 @@ async def live(config, brain):
     for login in channels:
         if login in [x.lower() for x in config.twitch_audio_channels]:
             rooms[login].heard = Transcript(config.twitch_audio_keep)
-            h = Hearing(login, config, rooms[login].heard, log)
+            h = Hearing(login, config, rooms[login].heard, log, show=SHOW_CONTEXT)
             if h.start():
                 ears.append(h)
     log(f"🤖 @{bot} ready · personality: {config.personality_file}")
@@ -433,6 +433,8 @@ def main():
     global SHOW_CONTEXT
     SHOW_CONTEXT = args.show_context
     config = Config.load()
+    from core.embedder import limit_cpu_threads
+    limit_cpu_threads(config.cpu_threads)                 # before any CPU model loads
     config.twitch_client_id = os.environ.get("TWITCH_CLIENT_ID", config.twitch_client_id)
 
     if args.login:

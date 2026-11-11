@@ -14,6 +14,7 @@ class Config:
     conv_history_path: str = "conversations_fallback"
     embedding_model: str = "Qwen/Qwen3-Embedding-0.6B"
     embed_device: str = "auto"       # "cpu" frees ~1.2GB of GPU (needed to fit a 9B chat model on 8GB)
+    cpu_threads: int = 2             # cores each CPU model (embedder, VAD, Moonshine) may use - stops them hogging all of them
 
     # LLM (Ollama)
     model_name: str = "qwen3.5:4b"
@@ -144,7 +145,7 @@ class Config:
     # hearing the streamer (twitch/hearing.py) - a HINT next to chat, never the only reason to speak
     twitch_audio_channels: List[str] = field(default_factory=list)   # channels to listen to (only with consent)
     twitch_audio_model: str = "moonshine/base"   # CPU, ~1 core, ~0.5GB RAM. try "moonshine/tiny" on a slow PC
-    twitch_audio_arch: Optional[int] = None         # moonshine-voice model size (None = its default for English)
+    twitch_audio_arch: Optional[str] = "base"       # moonshine-voice size: tiny | base | small | medium (medium = its default, VERY heavy on CPU)
     twitch_audio_window: int = 8          # seconds of audio per piece
     twitch_audio_min_speech: float = 0.25 # less speech than this in a piece = music / game -> skipped
     twitch_audio_keep: int = 60           # seconds of what the streamer said that I remember

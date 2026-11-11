@@ -13,6 +13,26 @@ from typing import List
 import numpy as np
 
 _CACHE = {}
+_THREADS = [2]
+
+
+def limit_cpu_threads(n):
+    """Keep CPU models from each grabbing every core (they fight and pin the CPU at 100%)."""
+    n = max(1, int(n or 1))
+    _THREADS[0] = n
+    for k in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
+        os.environ[k] = str(n)
+    os.environ["MOONSHINE_ORT_SINGLE_THREAD"] = "1"     # moonshine-voice: no spinning thread pool
+    try:
+        import torch
+        torch.set_num_threads(n)
+        try:
+            torch.set_num_interop_threads(1)
+        except RuntimeError:
+            pass                                        # already set once - fine
+    except Exception:
+        pass
+    return n
 
 
 class Embedder:
@@ -27,6 +47,8 @@ class Embedder:
             import torch
             use_gpu = torch.cuda.is_available() and device != "cpu"
             kw["device"] = "cuda" if use_gpu else "cpu"
+            if not use_gpu:
+                limit_cpu_threads(_THREADS[0])
             if use_gpu:
                 kw["model_kwargs"] = {"dtype": torch.float16}   # half the VRAM
         except Exception:
@@ -58,6 +80,7 @@ def get_embedder(config) -> Embedder:
     name = config.embedding_model
     device = getattr(config, "embed_device", "auto")
     if name not in _CACHE:
+        _THREADS[0] = getattr(config, "cpu_threads", 2)
         print(f"🔄 Loading embedding model {name}" + (" on the CPU (GPU left for the chat model)" if device == "cpu" else "") + "...")
         _CACHE[name] = Embedder(name, device)
     return _CACHE[name]

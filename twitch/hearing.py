@@ -107,6 +107,19 @@ class Transcript:
         return [h[:140] for h in hits[-n:]]
 
 
+ARCHS = {"tiny": 0, "base": 1, "tiny-streaming": 2, "base-streaming": 3, "small": 4, "medium": 5}
+
+
+def arch_number(arch):
+    """config twitch_audio_arch -> moonshine-voice ModelArch number. Default = base:
+    its own default for English is MEDIUM (~4x the CPU of base) - that pinned the CPU at 100%."""
+    if arch is None or arch == "":
+        return 1
+    if isinstance(arch, int) or str(arch).isdigit():
+        return int(arch)
+    return ARCHS.get(str(arch).lower().strip(), 1)
+
+
 class Transcriber:
     """Moonshine on the CPU. New package `moonshine-voice` (pip install moonshine-voice);
     falls back to the old `useful-moonshine-onnx` if that's what's installed."""
@@ -115,16 +128,23 @@ class Transcriber:
         self.kind = None
         try:
             from moonshine_voice import Transcriber as MV, get_model_for_language
-            path, default_arch = get_model_for_language(language)     # downloads once, then cached
-            self.t = MV(model_path=path, model_arch=arch if arch is not None else default_arch)
-            self.kind = "moonshine-voice"
+            want = arch_number(arch)
+            try:
+                from moonshine_voice import ModelArch
+                want = ModelArch(want)
+            except Exception:
+                pass
+            path, got = get_model_for_language(language, want)        # downloads once, then cached
+            self.t = MV(model_path=path, model_arch=got)
+            self.size = next((k for k, v in ARCHS.items() if v == int(got)), str(got))
+            self.kind = f"moonshine-voice {self.size}"
         except ImportError:
             import moonshine_onnx                                      # old package
             self.m, self.model, self.kind = moonshine_onnx, model, "moonshine-onnx"
 
     def __call__(self, audio):
         audio = np.asarray(audio, dtype=np.float32)
-        if self.kind == "moonshine-voice":
+        if self.kind.startswith("moonshine-voice"):
             out = self.t.transcribe_without_streaming(audio, sample_rate=RATE)
             return " ".join(l.text for l in getattr(out, "lines", []) if getattr(l, "text", "")).strip()
         with tempfile.NamedTemporaryFile(suffix=".wav") as f:
@@ -138,8 +158,9 @@ class Transcriber:
 class VoiceGate:
     """Silero VAD: only stretches that sound like speech get transcribed."""
 
-    def __init__(self):
+    def __init__(self, threads=1):
         import torch
+        torch.set_num_threads(max(1, threads))                    # VAD is tiny - 1 core is plenty
         from silero_vad import load_silero_vad, get_speech_timestamps
         self.torch, self.model, self.ts = torch, load_silero_vad(), get_speech_timestamps
 
@@ -171,8 +192,9 @@ def process_window(audio, gate, transcribe, transcript, min_speech=0.25):
 class Hearing:
     """Background listener for one channel. Restarts by itself; quietly waits while the stream is offline."""
 
-    def __init__(self, channel, config, transcript, log=print):
-        self.channel, self.c, self.t, self.log = channel, config, transcript, log
+    def __init__(self, channel, config, transcript, log=print, show=False):
+        self.channel, self.c, self.t, self.log, self.show = channel, config, transcript, log, show
+        self.slow = 0                                             # windows in a row the CPU couldn't keep up
         self.t.log = log
         self.stop_flag = threading.Event()
         self.thread = None
@@ -206,14 +228,31 @@ class Hearing:
     def stop(self):
         self.stop_flag.set()
 
+    def keep_up(self, ff, took, win):
+        """If one window takes longer than the window itself, the CPU is behind live audio:
+        throw away the backlog instead of grinding through it (that's what pins the CPU)."""
+        if took <= self.c.twitch_audio_window * 0.8:
+            self.slow = 0
+            return
+        self.slow += 1
+        if self.slow == 3:
+            self.log(f"🐢 #{self.channel}: audio is slower than live ({took:.1f}s per {self.c.twitch_audio_window}s) - "
+                     f"skipping ahead. try twitch_audio_arch \"tiny\"")
+        skip = int(took // self.c.twitch_audio_window)
+        for _ in range(min(skip, 4)):
+            if not ff.stdout.read(win):
+                break
+
     def _run(self):
         try:
+            from core.embedder import limit_cpu_threads
+            limit_cpu_threads(getattr(self.c, "cpu_threads", 2))   # before the models load
             gate = VoiceGate()
             transcribe = Transcriber(self.c.twitch_audio_model, arch=self.c.twitch_audio_arch)
         except Exception as e:
             self.log(f"🎧 #{self.channel}: couldn't load speech models ({e})")
             return
-        self.log(f"🎧 #{self.channel}: listening to the streamer ({transcribe.kind}, CPU)")
+        self.log(f"🎧 #{self.channel}: listening to the streamer ({transcribe.kind}, CPU x{getattr(self.c, 'cpu_threads', 2)})")
         win = int(RATE * self.c.twitch_audio_window) * 2          # bytes (int16)
         while not self.stop_flag.is_set():
             sl = ff = None
@@ -228,8 +267,14 @@ class Hearing:
                     if not raw or len(raw) < win // 4:
                         break                                     # stream ended / offline
                     audio = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
-                    if not self.t.paused:
-                        process_window(audio, gate, transcribe, self.t, self.c.twitch_audio_min_speech)
+                    if self.t.paused:
+                        continue
+                    t0 = time.monotonic()
+                    what = process_window(audio, gate, transcribe, self.t, self.c.twitch_audio_min_speech)
+                    took = time.monotonic() - t0
+                    if self.show and what.startswith("heard"):
+                        self.log(f"🎧 #{self.channel} {what}  [{took:.1f}s]")
+                    self.keep_up(ff, took, win)
             except Exception as e:
                 self.log(f"🎧 #{self.channel}: audio error ({e}) - retrying")
             finally:
