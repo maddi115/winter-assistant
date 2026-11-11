@@ -316,6 +316,18 @@ class Brain:
         except Exception:
             raw = ""
         self.last_context += f"\nwrote: {raw!r}"
+        echo = F.repeats_chat(raw, chosen)
+        if echo:                                   # just said what chat said -> one more try, then give up
+            try:
+                with self.gpu:
+                    again = F.write_messages(style + "\n" + self.personality.prompt, chosen, react, stream, heard, emotes, now)
+                    again[0]["content"] += f"\nDon't repeat \"{echo[:80]}\" - add something new to it."
+                    raw = json.loads(llm.chat_json(again, F.LINE_SCHEMA, max_tokens=40, temperature=0.9)).get("line", "")
+            except Exception:
+                raw = ""
+            self.last_context += f"\nrewrote (was repeating chat): {raw!r}"
+            if F.repeats_chat(raw, chosen):
+                return None, "just repeated chat"
         text = chat_line(raw, self.c.twitch_max_chars, False, self.c.twitch_block_words)
         if not text:
             return None, "nothing written"
@@ -338,6 +350,72 @@ class Brain:
             if not ok:
                 return None, "didn't make sense (votes)"
         return text, "from chat"
+
+    def read_room(self, room):
+        """Read the last 15 real messages as a whole -> maybe one line about the live conversation.
+        -> (line or None, why, log block)"""
+        from twitch import read_room as RR
+        from core.style import load as load_style
+        llm = getattr(self._transport(), "llm", None)
+        if llm is None:
+            return None, "no AI", ""
+        style = load_style(self.c.style_file) or self.c.style_words
+        emotes = (room.usable_emotes() if hasattr(room, "usable_emotes") else []) + list(self.personality.emojis)
+        with self.gpu:
+            text, why, info = RR.look(llm, room, self.c, style, emotes, self.personality.prompt,
+                                      polish=lambda t: self._polish(t, "general", room), heard_fn=self._heard)
+        block = RR.log_block(info, why, text)
+        self.last_context = block
+        return text, why, block
+
+    def catch_up(self, room, line, name=None):
+        """'what are you guys doing now?' -> fill them in from what the streamer just said + chat.
+        Same checks as speaking up. -> (line or None, route)"""
+        from twitch import chatflow as F
+        llm = getattr(self._transport(), "llm", None)
+        heard = getattr(room, "heard", None)
+        said = heard.latest() if heard is not None else []
+        stream = getattr(room, "stream", "")
+        lines = [l for l in F.clean_lines(room, line, n=10) if l is not line][-8:]
+        if llm is None:
+            return None, "no AI"
+        if not said and not lines:
+            return None, "nothing to go on"
+        word = F.touchy(lines + [line] + [type("L", (), {"text": x})() for x in said],
+                        getattr(self.c, "twitch_avoid_topics", []))
+        if word:
+            return None, f"touchy topic ({word})"
+        from core.style import load as load_style
+        style = load_style(self.c.style_file) or self.c.style_words
+        try:
+            with self.gpu:
+                raw = json.loads(llm.chat_json(F.catchup_messages(line.text, lines, said, stream, style),
+                                               F.LINE_SCHEMA, max_tokens=40, temperature=0.4)).get("line", "")
+        except Exception:
+            raw = ""
+        self.last_context = ("streamer said:\n" + "\n".join(f"  {x}" for x in said) + "\nchat:\n" + F.numbered(lines)
+                             + f"\nwrote: {raw!r}")
+        text = chat_line(raw, self.c.twitch_max_chars, False, self.c.twitch_block_words)
+        if not text or is_skip(text):
+            return None, "couldn't tell what's going on"
+        backed = lines + [type("L", (), {"text": x})() for x in said] + [type("L", (), {"text": stream})()]
+        from transport.checker import claim_guard
+        slang = set(re.findall(r"[a-z']+", style.lower()))
+        if not F.grounded(text, backed, slang, allow_new=self.c.twitch_new_words):
+            return None, "made something up (word check)"
+        if F.about_me(text) or not claim_guard(text):
+            return None, "talked about itself"
+        text = self._polish(text, "general", room)
+        if not text:
+            return None, "didn't pass the filters"
+        if self.c.twitch_sense_check:
+            q = [line]
+            with self.gpu:
+                ok = F.makes_sense(llm, lines[-4:] + q, text, stream=stream, heard=said[-2:])
+            self.last_context += f"\nmakes sense: {ok}"
+            if not ok:
+                return None, "didn't make sense (votes)"
+        return text, "catching up"
 
     def break_silence(self, room):
         return self.self_line(room, "silence")

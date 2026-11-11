@@ -82,7 +82,7 @@ class Config:
     twitch_room_lines: int = 15       # recent chat lines the AI sees (everyone, not just the bot)
     twitch_one_on_one_sec: int = 120  # only one person chatting in this window -> always answer them
     twitch_chime_chance: float = 0.2  # busy chat: chance to jump in on a message not aimed at me (x2 for questions)
-    twitch_chime_gap: int = 45        # busy chat: at least this many seconds between uninvited messages
+    twitch_chime_gap: int = 120        # busy chat: at least this many seconds between uninvited messages
     twitch_idle_sec: int = 240        # chat quiet this long after a real convo -> say one thing (0 = never)
     twitch_max_words: int = 18        # AI lines get cut to this (don't talk too much)
     twitch_max_quotes: int = 1        # quotes from my messages per chat line
@@ -114,13 +114,24 @@ class Config:
     twitch_burst_window: int = 30         # ...in this many seconds, all channels together
     twitch_show_chat: bool = True         # terminal shows every chat message it reads (👀) + why it stayed quiet
     # joining in only at real MOMENTS (twitch/talk.py) - never at random
+    # read the room (twitch/read_room.py): every so often read the last 15 real messages as a whole
+    twitch_read_room: bool = True
+    twitch_look_new: int = 8              # new real messages needed before I read the room again
+    twitch_look_gap_guest: int = 60       # seconds between reads in someone else's chat
+    twitch_look_gap_home: int = 45
+    twitch_look_lines: int = 15
+    twitch_look_fresh: int = 90           # the live conversation must have a line from the last 90s
+    twitch_look_min_sure: float = 0.7     # the writer's own "how sure am I" - under this = quiet
+    twitch_look_min_score: int = 4        # coherence votes: every score (topic/regular/sense/adds) at least this
+    twitch_review_file: str = "twitch_review.txt"   # every line I said / would say, with the chat around it
+    twitch_moment_catchup: float = 0.7    # "what are they doing?" -> fill them in from what the streamer said
     twitch_moment_question: float = 0.6   # someone asks chat a question ("anyone played this?")
-    twitch_moment_topic: float = 0.7      # chat talks about something I've really talked about
+    twitch_moment_topic: float = 0.0      # chat talks about something I've really talked about
     twitch_moment_wave: float = 0.5       # 4+ people spamming the same reaction -> one 😹 / 🥀 / W
     twitch_topic_min_sem: float = 0.55    # how close my real message has to be (higher = stricter)
     twitch_wave_gap: int = 180            # seconds between joining waves
     twitch_meow_gap: int = 180            # seconds between meows in someone else's chat
-    twitch_budget_15min_guest: int = 2    # max uninvited messages per 15 min in someone else's chat
+    twitch_budget_15min_guest: int = 3    # max uninvited messages per 15 min in someone else's chat
     twitch_budget_15min_home: int = 4     # ...and in my own
     twitch_moment_free_ai: bool = False   # question to chat + none of my messages fit -> AI writes anyway (off = silence)
     twitch_picker_votes: int = 3          # my-words picker: asked 3 times, 2 must agree on the same message

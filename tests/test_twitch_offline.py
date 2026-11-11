@@ -321,7 +321,7 @@ check("missing personality file is fine", __import__("core.personality", fromlis
 print("\nM. Guest channel (someone else's stream) - polite regular")
 gc = [10000.0]
 g = Room("scentlessoppa", clock=lambda: gc[0], guest=True)
-cg = Config()
+cg = Config(); cg.twitch_budget_15min_guest = 2
 
 
 def gsay(user, text, rng=0.99, **kw):
@@ -496,7 +496,7 @@ print("\nQ. Moments, not dice rolls")
 from twitch.talk import asks_chat
 qc = [5000.0]
 rq = Room("scentlessoppa", clock=lambda: qc[0], guest=True)
-cq = Config()
+cq = Config(); cq.twitch_moment_topic = 0.6
 
 
 def qsay(user, text, rng=0.0, knows=None):
@@ -645,6 +645,28 @@ check("a claim about my own life -> silence",
 rr = traffic_room()
 check("'does this make sense?' votes no -> silence",
       brain_chat(ChatLLM(ok=False), FakeEmbed()).speak_up(rr, rr.lines[-1], "x") == (None, "didn't make sense (votes)"))
+rr = traffic_room()
+check("'downtown fullerton poppin' after 'Downtown Fullerton could be Poppin' = a repeat",
+      bool(CF.repeats_chat("downtown fullerton poppin", [type("L", (), {"text": "Downtown Fullerton could be Poppin"})()])))
+check("...but adding to it isn't", not CF.repeats_chat("fullerton on a tuesday is dead tho", [type("L", (), {"text": "Downtown Fullerton could be Poppin"})()]))
+check("just repeating chat ('$50 parking traffic') -> silence after one retry",
+      brain_chat(ChatLLM(line="$50 parking"), FakeEmbed()).speak_up(rr, rr.lines[-1], "x") == (None, "just repeated chat"))
+from twitch.talk import catch_up as _cu
+check("catch-up questions are spotted", _cu("What are you guys doing now?") and _cu("what happened?")
+      and _cu("where are they at?") and not _cu("anyone played this before?") and not _cu("what are you guys doing now"))
+from twitch.hearing import Transcript
+rc = Room("scentlessoppa", guest=True); rc.heard = Transcript(60, clock=rc.clock)
+rc.heard.add("we are asking people on the street if jenny is approachable")
+for u, t in [("a", "jenny is so approachable"), ("b", "sam is not approachable lol")]:
+    rc.add(u, u, t)
+qc_ = rc.add("newguy", "newguy", "What are you guys doing now?")
+bc_ = brain_chat(ChatLLM(line="asking ppl if jenny is approachable"), FakeEmbed())
+check("catch up: fills them in from the stream", bc_.catch_up(rc, qc_, "newguy") == ("asking ppl if jenny is approachable", "catching up"),
+      bc_.catch_up(rc, qc_, "newguy"))
+check("catch up: the prompt has what the streamer said", "jenny is approachable" in json.dumps(bc_._transport().llm.seen[0]))
+check("catch up: made-up stuff -> silence",
+      brain_chat(ChatLLM(line="they at Disneyland with Drake"), FakeEmbed()).catch_up(rc, qc_, "x")[0] is None)
+check("catch up: AI not sure -> silence", brain_chat(ChatLLM(line="skip"), FakeEmbed()).catch_up(rc, qc_, "x")[0] is None)
 rr = traffic_room()
 check("never names the owner", brain_chat(ChatLLM(line="maddi hates traffic"), FakeEmbed()).speak_up(rr, rr.lines[-1], "x")[0] is None)
 rr = traffic_room()
@@ -965,6 +987,96 @@ for _ in range(3):
 check("slow windows: backlog skipped + one warning", len(_reads) == 6 and sum("🐢" in l for l in _logs) == 1)
 check("missing() accepts moonshine-voice", "moonshine-voice" not in HE.Hearing.missing())
 del sys.modules["moonshine_voice"]
+
+print("\nAB. Read the room (last 15 messages as a whole)")
+import twitch.read_room as RR
+_rc = [0.0]
+
+
+def fullerton_room():
+    r = Room("scentlessoppa", guest=True, clock=lambda: _rc[0])
+    for u, t in [("jay156384", "Australian breakdancer 🤣"), ("jay156384", "W anonymous"), ("ulumaika", "Australia LFG"),
+                 ("xmikey2020x", "W anon"), ("dylanchan94", "hey @camillem2020 @philski ddashLOVE"),
+                 ("viewer9", "bachelors degree in what foo"), ("viewer9", "scamming?"), ("xmikey2020x", "architecture"),
+                 ("33arnol", "LUL LUL LUL LUL"), ("deesassyangel", "where is everyone carrying tea ?"),
+                 ("ulumaika", "Downtown Fullerton could be Poppin"), ("xmikey2020x", "Fullerton has a college cal state"),
+                 ("king3dwin", "@uluMaika whats good and where is that at?"), ("33arnol", "Go to hollywood Blvd"),
+                 ("33arnol", "Get tacos 🌮 😋")]:
+        _rc[0] += 6
+        r.add(u, u, t)
+    return r
+
+
+class RoomLLM:
+    """Fake model for read-the-room: answers by which JSON shape is asked for."""
+    def __init__(self, active=0, threads=None, lines=("fullerton on a tuesday tho... hollywood blvd got people",),
+                 sure=0.9, explain=None, scores=(5, 4, 5, 4)):
+        self.active, self.lines, self.sure, self.scores = active, list(lines), sure, scores
+        self.threads = threads or [{"about": "where to go out", "lines": [7, 8, 9, 10]},
+                                   {"about": "anon's degree", "lines": [5]}]
+        self.explain = explain or {"meaning": "fullerton is dead on tuesdays, hollywood is busier", "lines": [7, 10]}
+        self.calls = []
+
+    def chat_json(self, messages, schema, **kw):
+        props = schema.get("properties", {})
+        self.calls.append(list(props))
+        if "threads" in props:
+            return json.dumps({"now": "streamers asking where to go out; chat says fullerton, hollywood blvd",
+                               "threads": self.threads, "active": self.active})
+        if "sure" in props:
+            line = self.lines.pop(0) if len(self.lines) > 1 else self.lines[0]
+            return json.dumps({"line": line, "sure": self.sure})
+        if "meaning" in props:
+            return json.dumps(self.explain)
+        return json.dumps(dict(zip(("on_topic", "regular", "sense", "says_something"), self.scores)))
+
+
+def look(llm, room=None, **kw):
+    c_ = Config(); c_.twitch_look_fresh = 10_000
+    for k, v in kw.items():
+        setattr(c_, k, v)
+    r = room or fullerton_room()
+    return RR.look(llm, r, c_, "lowercase, short", heard_fn=lambda _r: ["busier than hollywood blvd, its a tuesday night"])
+
+
+fr = fullerton_room()
+_last = RR.last_real(fr, Config())
+check("reads the last real messages: no greetings, no emote spam", len(_last) >= 10
+      and not any("ddashLOVE" in l.text or l.text.startswith("LUL") for l in _last), [l.text for l in _last])
+got = look(RoomLLM())
+check("live conversation -> one line about it", got[:2] == ("fullerton on a tuesday tho... hollywood blvd got people", "read the room"), got[:2])
+check("the log shows the 15 lines, what's going on, threads + checks",
+      all(x in RR.log_block(got[2], got[1], got[0]) for x in ("now:", "threads:", "explain test: ok", "scores")))
+check("no live conversation -> quiet", look(RoomLLM(active=-1))[0] is None)
+check("old thread (chat moved on) -> quiet",
+      look(RoomLLM(threads=[{"about": "breakdancing", "lines": [1, 2, 3]}]))[1] in ("chat already moved on from it", "only one person on it"))
+check("one person's thread -> quiet", look(RoomLLM(threads=[{"about": "anon", "lines": [1, 2, 11]}]))[0] is None)
+check("writer not sure -> quiet", look(RoomLLM(sure=0.4))[1] == "not sure enough")
+check("filler ('wtf smh') -> quiet", look(RoomLLM(lines=("wtf smh",)))[1] == "just filler")
+check("broken sentence -> quiet", "broken" in look(RoomLLM(lines=("fullerton is dead on tuesday and",)))[1])
+check("made-up name -> quiet", look(RoomLLM(lines=("Drake was in fullerton last tuesday",)))[1] == "made something up (word check)")
+_rep = look(RoomLLM(lines=("downtown fullerton poppin", "fullerton on a tuesday tho... hollywood blvd got people")))
+check("repeating chat -> one rewrite -> ok", _rep[0] == "fullerton on a tuesday tho... hollywood blvd got people", _rep[:2])
+check("repeats twice -> quiet", look(RoomLLM(lines=("downtown fullerton poppin",)))[1] == "repeats chat")
+check("explain test: about another conversation -> quiet",
+      look(RoomLLM(explain={"meaning": "about the degree", "lines": [5]}))[1] == "explain test: about a different conversation")
+check("explain test: makes no sense -> quiet",
+      look(RoomLLM(explain={"meaning": "this doesn't make sense", "lines": [7]}))[1].startswith("explain test"))
+check("coherence votes low -> quiet", look(RoomLLM(scores=(5, 3, 5, 4)))[1] == "coherence votes said no")
+_tr = fullerton_room(); _rc[0] += 1; _tr.add("x1", "x1", "fullerton is full of illegal immigrants")
+check("touchy topic -> quiet", "touchy" in look(RoomLLM(threads=[{"about": "x", "lines": [7, 8, 12]}]), room=_tr)[1])
+_d = fullerton_room(); _dc = Config()
+check("due: enough new real chat + gap + budget", RR.due(_d, _dc, True))
+_d.last_look = _rc[0]
+check("not due right after a look", not RR.due(_d, _dc, True))
+_d.last_look = -1e9; _d.last_chime = _rc[0] - 10
+check("not due right after I spoke (no point reading)", not RR.due(_d, _dc, True))
+_q = Room("q", guest=True, clock=lambda: _rc[0])
+for k in range(5):
+    _q.add(f"u{k}", "u", "LUL")
+check("not due on emote spam", not RR.due(_q, Config(), True))
+check("guest: max 3 own lines per 15 min, 5 min apart", Config().twitch_budget_15min_guest == 3 and Config().twitch_guest_chime_gap == 300)
+check("old keyword moment is replaced by reading the room", Config().twitch_moment_topic == 0.0)
 
 print("\nF. Login (device code flow, faked)")
 calls = []

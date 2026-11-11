@@ -98,6 +98,13 @@ class Transcript:
         chat |= topic_words(getattr(room, "stream", "") or "")
         return heard & chat
 
+    def latest(self, seconds=40, n=4):
+        """The last few things the streamer said (NOT echo-checked) - only for catching someone up."""
+        if self.paused:
+            return []
+        now = self.clock()
+        return [txt[:160] for t, txt, _ in self.items if now - t <= seconds][-n:]
+
     def snippets(self, room, n=2):
         """What the streamer said that's backed by chat - for the AI, marked as maybe-misheard."""
         trusted = self.trusted(room)

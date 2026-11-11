@@ -225,7 +225,7 @@ def pick(llm, msgs, n, votes=3, temperature=0.4, max_lines=4):
 def summary_messages(lines, stream="", heard=()):
     system = ("Say in ONE short sentence (max 20 words) what is going on in this Twitch stream right now, "
               "from the chat lines and what the streamer said. Newest lines matter most. Only what's there - "
-              "no guessing, no opinions.\n"
+              "no guessing, no opinions. The speech-to-text is often wrong: skip any part that sounds odd.\n"
               'Reply ONLY as JSON: {"now": "..."}')
     return [{"role": "system", "content": system}, {"role": "user", "content": stream_line(stream, heard) + numbered(lines)}]
 
@@ -255,6 +255,35 @@ def write_messages(style_prompt, lines, react, stream="", heard=(), emotes=(), n
     now_line = f"What's going on: {now}\n" if now else ""
     return [{"role": "system", "content": system},
             {"role": "user", "content": stream_line(stream, heard) + now_line + numbered(lines)}]
+
+
+def repeats_chat(reply, lines) -> str:
+    """The line just says what someone in chat already said ('downtown fullerton poppin'). -> that line or ''"""
+    mine = topic_words(reply)
+    if len(mine) < 1:
+        return ""
+    words = re.findall(r"[a-z0-9$']+", reply.lower())
+    for l in lines:
+        theirs = set(re.findall(r"[a-z0-9$']+", l.text.lower()))
+        extra = [w for w in words if w not in theirs]
+        if mine <= topic_words(l.text) and len(extra) <= 1:     # nothing of its own added
+            return l.text
+    return ""
+
+
+def catchup_messages(question, lines, said, stream="", style_prompt=""):
+    system = ("You're a regular in this Twitch chat. Someone just asked what's going on. Fill them in like a "
+              "regular would: ONE short message (3-12 words), plain, no hype.\n"
+              "Use only what the streamer said and what chat said. The speech-to-text is often wrong: only use "
+              "parts that clearly make sense. Never guess. If you can't tell what's going on, reply skip.\n"
+              "Never talk about yourself or being an AI. No hashtags, no quotes.\n"
+              + (f"How you type:\n{style_prompt}\n" if style_prompt else "") +
+              'Reply ONLY as JSON: {"line": "..."}')
+    ctx = (f"On stream right now: {stream}\n" if stream else "")
+    if said:
+        ctx += "The streamer just said (speech-to-text, may be misheard):\n" + "\n".join(f"- {x}" for x in said) + "\n"
+    return [{"role": "system", "content": system},
+            {"role": "user", "content": ctx + "Chat:\n" + numbered(lines) + f"\n\nQuestion: {question}"}]
 
 
 def specific(reply, lines, ignore=()) -> bool:

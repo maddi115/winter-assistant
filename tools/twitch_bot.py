@@ -9,6 +9,7 @@
                                           #   /later   (pretend 3 hours passed - regulars come back)
                                           #   /stream korean bbq w/ jennie · IRL   (set the stream title)
                                           #   /said no gloves tonight we going raw  (pretend the streamer said it)
+                                          #   /look    (read the room now: last 15 messages -> maybe one line)
   python tools/twitch_bot.py --show-context   # also print the recent chat the AI saw for each reply
 
 When it answers: twitch/talk.py · when it starts talking on its own: twitch/self_talk.py
@@ -29,6 +30,7 @@ from twitch.room import Room
 from twitch.talk import decide
 from twitch.self_talk import SelfTalk
 from twitch.chatters import Chatters
+from twitch import read_room as RR
 
 TWITCH_CONTEXT = ("You're a regular person hanging out in Twitch chat, NOT an assistant. "
                   "Type like a real chatter: lowercase, usually 2-12 words, no emojis, no exclamation marks, "
@@ -70,9 +72,9 @@ def build_brain(config, no_ai=False):
                  ai=ai, base_context=TWITCH_CONTEXT)
 
 
-MOMENTS = {"question to chat", "chat on one topic"}   # speaking up uninvited -> grounded in the chat, may skip
+MOMENTS = {"question to chat", "chat on one topic", "catch up", "read the room"}   # speaking up uninvited -> grounded in the chat, may skip
 JOIN_IN = MOMENTS | {"chat mood"}               # speaking up uninvited (shadow applies)
-THREAD = {"direct", "said my name", "question to chat"}   # answering someone -> "Replying to @x"
+THREAD = {"direct", "said my name", "question to chat", "catch up"}   # answering someone -> "Replying to @x"
 
 
 MAY_SKIP = {"1-on-1"}                      # not talked to directly -> the AI may decide it's not worth a reply
@@ -82,6 +84,8 @@ def answer(brain, m, q, why, room, line, note):
     """Asked directly -> full pipeline, always answers. Joining in / 1-on-1 -> the AI may skip."""
     if why == "chat mood":
         return q, "emote"                            # one emote for chat's mood - no AI needed
+    if why == "catch up":
+        return brain.catch_up(room, line, m.name)
     if why in MOMENTS:
         said, route = brain.speak_up(room, line, m.name)        # my real words first
         if said is None and why == "question to chat" and brain.c.twitch_moment_free_ai:
@@ -110,6 +114,16 @@ def mark_spoken(room, why, said=None):
         room.last_emote = said                  # budget was already claimed in decide()
     if why == "meow":
         room.last_meow = room.clock()
+
+
+def review(config, room, said, shadow, block):
+    """Every line I said / would say goes to a file with the chat around it - read it after a stream."""
+    try:
+        with open(config.twitch_review_file, "a", encoding="utf-8") as f:
+            f.write(f"\n=== {time.strftime('%Y-%m-%d %H:%M:%S')} #{room.channel} "
+                    f"{'SHADOW (not sent)' if shadow else 'SENT'}: {said}\n{block}\n")
+    except OSError:
+        pass
 
 
 def load_my_emotes(helix, token, rooms, ids, log):
@@ -203,6 +217,14 @@ def dry_run(config, brain, bot, guest=False):
             kept = room.heard.add(raw[6:].strip())
             print(f"   (streamer said: {raw[6:].strip()!r}" + ("" if kept else " - dropped as junk") + ")")
             continue
+        if raw == "/look":
+            said, why_q, block = brain.read_room(room)
+            print(f"   🔎 read the room -> {('SAY: ' + said) if said else 'quiet: ' + why_q}\n{block}")
+            if said:
+                room.add(bot, bot, said, is_bot=True)
+                mark_spoken(room, "read the room", said)
+            room.last_look = room.clock()
+            continue
         if raw.startswith("/stream "):
             room.stream = raw[8:].strip()
             print(f"   (stream is now: {room.stream})")
@@ -234,6 +256,14 @@ def dry_run(config, brain, bot, guest=False):
                 if said:
                     me.record(room)
                     room.add(bot, bot, said, is_bot=True)
+            elif config.twitch_read_room and RR.due(room, config, guest):
+                room.last_look = room.clock()
+                said, why_q, block = brain.read_room(room)
+                print(f"   🔎 read the room -> {('SAY: ' + said) if said else 'quiet: ' + why_q}"
+                      + (f"\n{block}" if SHOW_CONTEXT else ""))
+                if said:
+                    room.add(bot, bot, said, is_bot=True)
+                    mark_spoken(room, "read the room", said)
             else:
                 print(f"   (stays quiet: {why})")
             continue
@@ -357,6 +387,12 @@ async def live(config, brain):
                     queue.put_nowait(("welcome", m, None, line, "welcome back", note))
                 except asyncio.QueueFull:
                     pass
+            elif config.twitch_read_room and queue.empty() and RR.due(room, config, room.guest):
+                room.last_look = room.clock()
+                try:
+                    queue.put_nowait(("look", m, None, line, "read the room", None))
+                except asyncio.QueueFull:
+                    pass
             return
         if not cd.ready(m.user):
             log(f"⏳ {m.user} on cooldown: {q[:60]}")
@@ -376,6 +412,31 @@ async def live(config, brain):
             kind, m, q, line, why, note = await queue.get()
             t0 = time.time()
             room = rooms[m.channel]
+            if kind == "look":
+                try:
+                    said, why_q, block = await asyncio.to_thread(brain.read_room, room)
+                except Exception as e:
+                    log(f"❌ reading the room failed: {e}")
+                    continue
+                shadow = config.twitch_shadow_guest if room.guest else config.twitch_shadow_home
+                if not said:
+                    log(f"🔎 #{m.channel} read the room -> quiet: {why_q}" + (f"\n{block}" if SHOW_CONTEXT else ""))
+                    continue
+                if shadow:
+                    log(f"🫥 #{m.channel} would say (shadow, not sent): {said}   [read the room]"
+                        + (f"\n{block}" if SHOW_CONTEXT else ""))
+                    mark_spoken(room, "read the room", said)
+                    review(config, room, said, True, block)
+                    continue
+                if config.twitch_typing_delay:
+                    await asyncio.sleep(typing_delay(said, time.time() - t0))
+                sent, err = await say(m.channel, said)
+                if sent:
+                    mark_spoken(room, "read the room", said)
+                    review(config, room, said, False, block)
+                log(f"{'💬' if sent else '⚠️  not sent (' + err + ')'} #{m.channel} -> {said}   [read the room · "
+                    f"{time.time() - t0:.1f}s]" + (f"\n{block}" if SHOW_CONTEXT else ""))
+                continue
             if kind == "welcome":
                 said = await asyncio.to_thread(brain.self_line, room, "welcome", m.name, note)
                 if said and me.allowed(room):

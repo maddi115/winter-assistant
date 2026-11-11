@@ -9,6 +9,7 @@ otherwise only sometimes, and never take over the chat.
   chat flying (60+ msgs/min)                                                 -> only when talked to
   1-on-1        only one person chatting lately (home)                       -> usually (the AI may skip)
   everything else -> only at a real MOMENT, never at random:
+     catch up           "what are they doing?" "what happened?"              -> maybe: fill them in from the stream
      question to chat   "anyone played this?" "who's winning?"               -> maybe (AI may skip)
      chat on one topic  3+ people on the same thing (checked on the chat)    -> maybe (AI may skip)
      chat mood          3+ people laughing / shocked / grossed out / hype     -> maybe ONE emote (own budget)
@@ -26,6 +27,19 @@ from twitch.rules import Incoming, question_for_bot
 ASKS_CHAT = re.compile(r"^(anyone|any1|anybody|does anyone|did anyone|has anyone|who|what|which|where|when|why|how|"
                        r"is it|is this|are we|should|would|can|do (you|u) guys|chat|y'?all|yall)\b", re.I)
 WAVE_REPLY = {"laugh": ["😹", "LUL"], "sad": ["🥀"], "hype": ["W"]}
+
+
+CATCH_UP = re.compile(
+    r"\b(what (are|r|is|s) (they|he|she|u|you|y'?all|you guys|u guys|we|sam) (doing|up to|talking about)"
+    r"|what'?s (going on|happening|the plan)|what is (going on|happening)|what happened"
+    r"|where (are|r|is) (they|he|she|u|you guys|u guys|y'?all|we)( at| going)?"
+    r"|what did (he|she|they|sam) (just )?say|why (are|is) (they|he|she) )", re.I)
+
+
+def catch_up(text: str) -> bool:
+    """Someone just got here / missed something: 'what are you guys doing now?' 'what happened?'
+    A regular would fill them in from what's on stream."""
+    return text.strip().endswith("?") and bool(CATCH_UP.search(text))
 
 
 def asks_chat(text: str) -> bool:
@@ -127,7 +141,9 @@ def decide(m: Incoming, bot: str, c, room, rng=random.random, knows=None, emojis
         return None, "thought about it recently"   # stayed quiet on a moment a minute ago
 
     # only a real moment can make me speak up - never a dice roll on random chat
-    if asks_chat(text):
+    if catch_up(text) and (getattr(room, "heard", None) is not None or getattr(room, "stream", "")):
+        moment, chance = "catch up", c.twitch_moment_catchup
+    elif asks_chat(text):
         moment, chance = "question to chat", c.twitch_moment_question
     elif knows is not None and len(text.split()) >= 3 and _on_topic(knows, text, room):
         moment, chance = "chat on one topic", c.twitch_moment_topic
