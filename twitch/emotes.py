@@ -31,7 +31,8 @@ TOKEN = re.compile(r"[A-Za-z0-9?!]+")
 EMOJI_ONLY = re.compile(r"^[\W_]+$")
 
 
-CAMEL = re.compile(r"^[a-z]*[A-Z][a-z]+[A-Z][A-Za-z0-9]*$|^[A-Z]{3,}[a-z]*$|^[a-z]+[A-Z]{2,}[a-z]*$")
+CAMEL = re.compile(r"^[a-z]*[A-Z][a-z]+[A-Z][A-Za-z0-9]*$|^[A-Z]{3,}[a-z]*$|^[a-z]+[A-Z]{2,}[a-z]*$"
+                   r"|^[a-z][a-z0-9]{2,9}[A-Z][A-Za-z0-9]{1,20}$")   # sub emotes: scentlHere4U, mvngoDizzy, jenn1eDaisyGG
 LAUGH = re.compile(r"^(a?h+a+h+[ah]*|a?ha(ha)+h?|l+o+l+[ol]*|lmf?a+o+|xd+|ja(ja)+|kek+|rofl)$", re.I)
 
 

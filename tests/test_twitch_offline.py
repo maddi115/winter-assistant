@@ -532,6 +532,24 @@ from twitch.brain import backed_by
 check("a claim backed by my real message is allowed", backed_by("i like burritos with chips fr", "I like eating burritos with chips"))
 check("an invented claim isn't", not backed_by("i love sushi", "I like eating burritos with chips"))
 
+print("\nR. The streamer's own emotes")
+def emote_ev(text, emote_words):
+    frags = []
+    for w in text.split():
+        frags.append({"type": "emote" if w in emote_words else "text", "text": w})
+    return {"broadcaster_user_login": "scentlessoppa", "broadcaster_user_id": "1", "chatter_user_login": "v",
+            "chatter_user_name": "v", "message_id": "x", "message": {"text": text, "fragments": frags}}
+me1 = parse_event(emote_ev("scentlHere4U scentlHere4U", {"scentlHere4U"}))
+check("Twitch-marked emotes are read", me1.emotes == ["scentlHere4U", "scentlHere4U"] and me1.plain == "", (me1.emotes, me1.plain))
+re1 = Room("scentlessoppa", guest=True); re1.add(me1.user, me1.name, me1.text)
+check("a message of only sub emotes -> just a reaction", decide(me1, "winterrs0", Config(), re1, rng=lambda: 0.0)[1] == "just a reaction")
+me2 = parse_event(emote_ev("sam uses his hands every night jnbKinda", {"jnbKinda"}))
+check("text + an emote is still real text", me2.plain == "sam uses his hands every night"
+      and decide(me2, "winterrs0", Config(), re1, rng=lambda: 0.0)[1] != "just a reaction")
+for w in ["mvngoDizzy", "jenn1eDaisyGG", "jlleiEating", "gachiBASS", "samEYES"]:
+    check(f"'{w}' looks like an emote even without Twitch marking it", is_reaction(w))
+check("normal words don't", not is_reaction("handsome") and not is_reaction("iPhone stuff is cool"))
+
 print("\nF. Login (device code flow, faked)")
 calls = []
 

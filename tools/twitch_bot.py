@@ -264,8 +264,8 @@ async def live(config, brain):
             log(f"👀 #{m.channel} {m.user}: {m.text[:90]}   {what}   [room: {len(room.lines)} lines, "
                 f"{room.mpm():.0f}/min]")
         people = people_for(room)
-        away = people.seen(m.user, m.name, m.text, talked_to_me=q is not None) \
-            if config.twitch_remember_chatters else 0.0
+        away = people.seen(m.user, m.name, m.plain if m.plain is not None else m.text,
+                           talked_to_me=q is not None) if config.twitch_remember_chatters else 0.0
         note = people.note(m.user, away) if config.twitch_remember_chatters else None
         if q is None:
             if me.welcome(room, m.user, away, already_answering=False):

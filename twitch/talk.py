@@ -73,7 +73,9 @@ def decide(m: Incoming, bot: str, c, room, rng=random.random, knows=None, emojis
     gap = c.twitch_guest_chime_gap if guest else c.twitch_chime_gap
     room_ok = room.uninvited_since(900) < budget
 
-    if is_reaction(text):
+    # Twitch marks emotes (even the streamer's sub emotes) - a message that's only emotes is a reaction
+    only_emotes = bool(getattr(m, "emotes", None)) and is_reaction(m.plain or "")
+    if only_emotes or is_reaction(text):
         # one person laughing isn't a moment. 4+ people laughing together is.
         mood_ = room.wave() if room_ok and now - room.last_wave >= c.twitch_wave_gap else None
         reply = wave_reply(mood_, emojis) if mood_ else None

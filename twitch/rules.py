@@ -22,6 +22,8 @@ class Incoming:
     message_id: str = ""
     reply_to_user: str = ""  # login of the person this message replies to
     mentions: List[str] = field(default_factory=list)
+    emotes: List[str] = field(default_factory=list)   # emotes Twitch marked in the message (incl. sub emotes)
+    plain: str = None        # the text without those emotes
 
 
 def parse_event(e: dict) -> Incoming:
@@ -30,10 +32,15 @@ def parse_event(e: dict) -> Incoming:
     mentions = [(f.get("mention") or {}).get("user_login", "").lower()
                 for f in msg.get("fragments") or [] if f.get("type") == "mention"]
     reply = e.get("reply") or {}
+    frags = msg.get("fragments") or []
+    emotes = [f.get("text", "") for f in frags if f.get("type") in ("emote", "cheermote")]
+    plain = " ".join(f.get("text", "") for f in frags if f.get("type") not in ("emote", "cheermote")).strip() \
+        if frags else None
     return Incoming(channel=e.get("broadcaster_user_login", ""), channel_id=e.get("broadcaster_user_id", ""),
                     user=(e.get("chatter_user_login") or "").lower(), name=e.get("chatter_user_name", ""),
                     text=msg.get("text", ""), message_id=e.get("message_id", ""),
-                    reply_to_user=(reply.get("parent_user_login") or "").lower(), mentions=mentions)
+                    reply_to_user=(reply.get("parent_user_login") or "").lower(), mentions=mentions,
+                    emotes=emotes, plain=plain)
 
 
 def question_for_bot(m: Incoming, bot: str, prefix: str, ignore: List[str],
