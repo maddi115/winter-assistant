@@ -25,6 +25,7 @@ PICK_SCHEMA = {"type": "object",
                               "react": {"type": "string", "enum": REACTIONS}},
                "required": ["lines", "react"]}
 LINE_SCHEMA = {"type": "object", "properties": {"line": {"type": "string"}}, "required": ["line"]}
+NOW_SCHEMA = {"type": "object", "properties": {"now": {"type": "string"}}, "required": ["now"]}
 OK_SCHEMA = {"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]}
 
 # filler never makes a topic or a "new fact" (from the 2-word topic rule)
@@ -186,7 +187,9 @@ def pick_messages(lines, stream="", heard=()):
               "Pick the numbers of the lines that are one conversation, and how to react:\n"
               "agree = say you agree or relate, joke = a light joke about it, answer = someone asked something "
               "and the lines give the answer, skip = nothing worth adding.\n"
-              "Most of the time the answer is skip.\n"
+              "If chat jumped between topics, go with the NEWEST one (the highest numbers).\n"
+              "Skip if you'd have nothing specific to add. But if chat is clearly on one thing and a regular "
+              "would chime in, react.\n"
               'Reply ONLY as JSON: {"lines": [numbers], "react": "skip|agree|joke|answer"}')
     return [{"role": "system", "content": system}, {"role": "user", "content": stream_line(stream, heard) + numbered(lines)}]
 
@@ -219,18 +222,39 @@ def pick(llm, msgs, n, votes=3, temperature=0.4, max_lines=4):
     return top, picked, reacts
 
 
-def write_messages(style_prompt, lines, react, stream="", heard=(), emotes=()):
+def summary_messages(lines, stream="", heard=()):
+    system = ("Say in ONE short sentence (max 20 words) what is going on in this Twitch stream right now, "
+              "from the chat lines and what the streamer said. Newest lines matter most. Only what's there - "
+              "no guessing, no opinions.\n"
+              'Reply ONLY as JSON: {"now": "..."}')
+    return [{"role": "system", "content": system}, {"role": "user", "content": stream_line(stream, heard) + numbered(lines)}]
+
+
+def summarize(llm, lines, stream="", heard=()):
+    """'chat is joking about Sam's ankle monitor; the streamer is teaching Korean' - so the writer
+    knows the situation instead of guessing from 3 overlapping topics."""
+    try:
+        now = json.loads(llm.chat_json(summary_messages(lines, stream, heard), NOW_SCHEMA, max_tokens=50)).get("now", "")
+    except Exception:
+        return ""
+    return " ".join(str(now).split()[:25])
+
+
+def write_messages(style_prompt, lines, react, stream="", heard=(), emotes=(), now=""):
     how = {"agree": "agree or relate with it", "joke": "make a light, low-key joke about it",
            "answer": "answer the question using what chat said"}[react]
     system = (f"You are a regular in this Twitch chat. Write ONE short message (1-8 words) that would come next.\n"
               f"{how}. Only talk about what's in these lines - don't add facts, names or numbers they don't have.\n"
-              f"Be specific: mention the actual thing chat is on. Never talk about yourself, your life or being an AI. "
-              f"No hashtags, no quotes.\n"
+              f"Add ONE specific detail or angle from the chat or the streamer - don't just repeat what someone said. "
+              f"Deadpan: say less than the moment deserves, no hype, no robot jokes, no punchline setups. "
+              f"Never talk about yourself, your life or being an AI. No hashtags, no quotes.\n"
               + (f"You may end with ONE of these emotes if it fits (most messages none): {' '.join(emotes[:6])}\n"
                  if emotes else "") +
               f"How you type:\n{style_prompt}\n"
               'Reply ONLY as JSON: {"line": "..."}')
-    return [{"role": "system", "content": system}, {"role": "user", "content": stream_line(stream, heard) + numbered(lines)}]
+    now_line = f"What's going on: {now}\n" if now else ""
+    return [{"role": "system", "content": system},
+            {"role": "user", "content": stream_line(stream, heard) + now_line + numbered(lines)}]
 
 
 def specific(reply, lines, ignore=()) -> bool:
@@ -265,21 +289,22 @@ def about_me(reply) -> bool:
     return bool(SELF.search(re.sub(r"\b[A-Z]{3,}\b", " ", reply)))   # ICANT etc. aren't "i"
 
 
-def sense_messages(lines, reply, stream="", heard=()):
+def sense_messages(lines, reply, stream="", heard=(), now=""):
     system = ("Would this message make sense as the next message in this Twitch chat, said by a regular? "
               "Say false if it's off-topic, weird, generic filler that could be said anytime, repeats someone, "
               "misreads a joke, or sounds like a bot.\n"
               'Reply ONLY as JSON: {"ok": true|false}')
     return [{"role": "system", "content": system},
-            {"role": "user", "content": stream_line(stream, heard) + numbered(lines) + f"\n\nNext message: {reply}"}]
+            {"role": "user", "content": stream_line(stream, heard) + (f"What's going on: {now}\n" if now else "")
+             + numbered(lines) + f"\n\nNext message: {reply}"}]
 
 
-def makes_sense(llm, lines, reply, votes=3, stream="", heard=()):
+def makes_sense(llm, lines, reply, votes=3, stream="", heard=(), now=""):
     """2 yes needed. Stops as soon as the answer is decided (2 yes or 2 no) - saves a model call."""
     yes = no = 0
     for i in range(votes):
         try:
-            ok = bool(json.loads(llm.chat_json(sense_messages(lines, reply, stream, heard), OK_SCHEMA, max_tokens=10,
+            ok = bool(json.loads(llm.chat_json(sense_messages(lines, reply, stream, heard, now), OK_SCHEMA, max_tokens=10,
                                                temperature=0.0 if i == 0 else 0.4)).get("ok"))
         except Exception:
             ok = False

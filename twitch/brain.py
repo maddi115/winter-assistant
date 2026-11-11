@@ -300,13 +300,18 @@ class Brain:
         if react == "skip":
             return None, "skip (votes)"
         chosen = [lines[i - 1] for i in picked]
+        now = ""
+        if self.c.twitch_chat_summary:
+            with self.gpu:
+                now = F.summarize(llm, lines, stream, heard)
+            self.last_context += f"\nwhat's going on: {now!r}"
         from core.style import load as load_style
         style = load_style(self.c.style_file) or self.c.style_words
         try:
             with self.gpu:
                 emotes = (room.usable_emotes() if hasattr(room, "usable_emotes") else []) + list(self.personality.emojis)
                 raw = json.loads(llm.chat_json(F.write_messages(style + "\n" + self.personality.prompt, chosen, react,
-                                                                stream, heard, emotes),
+                                                                stream, heard, emotes, now),
                                                F.LINE_SCHEMA, max_tokens=40, temperature=0.7)).get("line", "")
         except Exception:
             raw = ""
@@ -317,7 +322,7 @@ class Brain:
         from transport.checker import claim_guard
         slang = set(re.findall(r"[a-z']+", style.lower()))
         said_lines = [type("L", (), {"text": h})() for h in heard]   # what the streamer said counts as backed
-        if not F.grounded(text, chosen + said_lines, slang):
+        if not F.grounded(text, chosen + said_lines, slang, allow_new=self.c.twitch_new_words):
             return None, "made something up (word check)"
         if not F.specific(text, chosen + said_lines, F.room_names(room)):
             return None, "too generic (doesn't name the thing)"
@@ -328,7 +333,7 @@ class Brain:
             return None, "didn't pass the filters"
         if self.c.twitch_sense_check:
             with self.gpu:
-                ok = F.makes_sense(llm, chosen, text, stream=stream, heard=heard)
+                ok = F.makes_sense(llm, chosen, text, stream=stream, heard=heard, now=now)
             self.last_context += f"\nmakes sense: {ok}"
             if not ok:
                 return None, "didn't make sense (votes)"

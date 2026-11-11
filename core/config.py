@@ -98,7 +98,7 @@ class Config:
     # GUEST channels = any channel that isn't the bot's own. Acts like a polite regular:
     # answers when talked to, rarely joins in (only with something good), never starts
     # conversations, never saves chatters to disk.
-    twitch_guest_chime_chance: float = 0.08   # chance to consider joining in on a message
+    twitch_guest_chime_chance: float = 0.15   # chance to consider joining in on a message
     twitch_guest_chime_gap: int = 300         # at least this many seconds between joining in
     twitch_guest_min_gap: int = 10            # seconds between ANY two bot messages in a guest channel
     twitch_guest_max_words: int = 15          # AI lines
@@ -114,8 +114,8 @@ class Config:
     twitch_burst_window: int = 30         # ...in this many seconds, all channels together
     twitch_show_chat: bool = True         # terminal shows every chat message it reads (👀) + why it stayed quiet
     # joining in only at real MOMENTS (twitch/talk.py) - never at random
-    twitch_moment_question: float = 0.4   # someone asks chat a question ("anyone played this?")
-    twitch_moment_topic: float = 0.6      # chat talks about something I've really talked about
+    twitch_moment_question: float = 0.6   # someone asks chat a question ("anyone played this?")
+    twitch_moment_topic: float = 0.7      # chat talks about something I've really talked about
     twitch_moment_wave: float = 0.5       # 4+ people spamming the same reaction -> one 😹 / 🥀 / W
     twitch_topic_min_sem: float = 0.55    # how close my real message has to be (higher = stricter)
     twitch_wave_gap: int = 180            # seconds between joining waves
@@ -124,17 +124,19 @@ class Config:
     twitch_budget_15min_home: int = 4     # ...and in my own
     twitch_moment_free_ai: bool = False   # question to chat + none of my messages fit -> AI writes anyway (off = silence)
     twitch_picker_votes: int = 3          # my-words picker: asked 3 times, 2 must agree on the same message
-    twitch_consider_gap: int = 60         # a moment I stayed quiet on -> wait this long before considering another
+    twitch_consider_gap: int = 40         # a moment I stayed quiet on -> wait this long before considering another
     # speaking up is grounded in the TWITCH CHAT (twitch/chatflow.py) - my own chats never go in that prompt
-    twitch_thread_people: int = 3         # a conversation needs at least this many different people
-    twitch_chat_stability: float = 0.5    # stasis gate on the chat lines (meaning scores agree)
+    twitch_thread_people: int = 2         # a conversation needs at least this many different people
+    twitch_chat_stability: float = 0.4    # stasis gate on the chat lines (meaning scores agree)
     twitch_chat_confidence: float = 0.3
+    twitch_chat_summary: bool = True      # one line of "what's going on" for the writer (1 extra AI call, only when about to write)
+    twitch_new_words: int = 2             # words the line may add that chat didn't say ("customs gave him an accessory")
     twitch_sense_check: bool = True       # final "does this make sense right now?" vote (2 of 3)
     twitch_shadow_guest: bool = True      # someone else's chat: speaking up is only LOGGED (🫥), not sent - review first
     twitch_shadow_home: bool = False      # my own chat: speaking up is sent
     twitch_third_party_emotes: bool = False  # BTTV/7TV words (ICANT, KEKW, HUH): off = only Twitch's own emotes (render for everyone)
     twitch_shadow_emotes: bool = False    # emote-only reactions (LUL, ICANT, 😹) skip shadow - they ARE sent, words stay shadowed
-    twitch_pick_max_lines: int = 4        # the picker grabbing more lines than this = "no real conversation" -> skip
+    twitch_pick_max_lines: int = 5        # the picker grabbing more lines than this = "no real conversation" -> skip
     twitch_quote_min_words: int = 5       # answers about me shorter than this (like "For real, I thin.") aren't sent
     twitch_stream_info: bool = True       # read the stream title + category so it knows what's on screen
     # chat mood -> one emote (twitch/mood.py) - its own budget, separate from words

@@ -849,6 +849,24 @@ check("default: shocked -> WutFace / 😳 (renders for everyone)", decide(mh, "w
 from twitch.mood import baity
 check("'there white on stream' (socks) isn't race bait", not baity("there white on stream") and not baity("black hoodie goes hard"))
 check("...but 'white people' / 'black guys' still is", baity("white people be like") and baity("black guys always"))
+import twitch.chatflow as CF2
+_L = [type("L", (), {"name": n, "text": t, "user": n})() for n, t in [("a", "LUL does the ankle monitor work"),
+      ("b", "sam got a tracker!"), ("c", "Why does he have ankle monitor, who did he fight"), ("d", "customs apparently")]]
+check("writer may add a small new angle (2 words)", CF2.grounded("customs gave him an accessory", _L, allow_new=2))
+check("...but still no made-up names / numbers", not CF2.grounded("customs gave Jimmy 5 years", _L, allow_new=2))
+_w = CF2.write_messages("lowercase", _L, "joke", now="chat is joking about sams ankle monitor")
+check("writer gets 'what's going on' + the deadpan rule", "What's going on: chat is joking" in _w[1]["content"]
+      and "Deadpan" in _w[0]["content"] and "ONE specific detail" in _w[0]["content"])
+class _NowLLM:
+    def chat_json(self, msgs, schema, **kw): return '{"now": "chat is joking about sams ankle monitor while he learns korean"}'
+check("summary is one short line", CF2.summarize(_NowLLM(), _L).startswith("chat is joking") and len(CF2.summarize(_NowLLM(), _L).split()) <= 25)
+class _BadLLM:
+    def chat_json(self, *a, **k): raise RuntimeError("down")
+check("summary failing = just no summary (never crashes)", CF2.summarize(_BadLLM(), _L) == "")
+check("picker goes with the newest topic", "NEWEST" in CF2.pick_messages(_L)[0]["content"])
+from core.personality import load as _pl
+_pp = _pl("memory/personality.md")
+check("no robot jokes: tracking / scanning / canon are never-say", {"tracking", "scanning", "canon"} <= set(_pp.never))
 check("BTTV/7TV emotes off by default", Config().twitch_third_party_emotes is False)
 zf = zroom([("a", "oh yum"), ("b", "yummy"), ("c", "Kreygasm")])
 mf = msg("yum", user="d"); zf.add(mf.user, mf.name, mf.text)
