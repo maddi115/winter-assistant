@@ -37,6 +37,7 @@ class Room:
         self.emote_seen = {}            # emote -> [(time, user)] for emotes I could post
         self.native = set()             # Twitch-marked global emotes seen here (they render for everyone)
         self.native_only = True         # only post emotes that show as a picture without BTTV/7TV
+        self.mine = set()               # emotes MY account can post here (from Twitch), empty = not loaded
         self.idle_spoken = False        # already broke one silence since the last human message
 
     def add(self, user, name, text, is_bot=False) -> Line:
@@ -109,7 +110,7 @@ class Room:
         now = self.clock()
         for e in marked or ():
             name = e.get("name", "")
-            if e.get("owner") in ("", "0") or e.get("set") == "0":
+            if e.get("owner") in ("", "0") or e.get("set") == "0" or name in self.mine:
                 self.emote_seen.setdefault(name, []).append((now, user))
                 self.native.add(name)
             else:
@@ -128,7 +129,9 @@ class Room:
     def renders(self, name):
         """Will this show as a picture for everyone? (Twitch global, not a BTTV/7TV word)"""
         from twitch.emotes import TWITCH_GLOBAL
-        return not self.native_only or name in self.native or name in TWITCH_GLOBAL
+        if not self.native_only or name in self.native or name in self.mine:
+            return True
+        return not self.mine and name in TWITCH_GLOBAL      # Twitch list not loaded -> built-in fallback
 
     def usable_emotes(self, window=1800, people=2, top=8):
         """Emotes I can use here: seen from 2+ people lately, never sub emotes, and (by default)

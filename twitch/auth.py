@@ -10,7 +10,9 @@ from pathlib import Path
 
 from twitch.http import request, HTTPError
 
-SCOPES = "user:read:chat user:write:chat"
+SCOPES = "user:read:chat user:write:chat"          # required
+EXTRA_SCOPES = "user:read:emotes"                   # nice to have: the emotes MY account can use
+ASK = f"{SCOPES} {EXTRA_SCOPES}"
 DEVICE_URL = "https://id.twitch.tv/oauth2/device"
 TOKEN_URL = "https://id.twitch.tv/oauth2/token"
 VALIDATE_URL = "https://id.twitch.tv/oauth2/validate"
@@ -31,7 +33,7 @@ def save(path, tok):
 
 
 def device_login(client_id, path):
-    _, d = request("POST", DEVICE_URL, form={"client_id": client_id, "scopes": SCOPES})
+    _, d = request("POST", DEVICE_URL, form={"client_id": client_id, "scopes": ASK})
     print("\n🔑 Sign in as your BOT account (not your main), then open:\n")
     print(f"   {d['verification_uri']}")
     print(f"\n   code: {d['user_code']}   (expires in {d['expires_in'] // 60} min)\n")
@@ -41,7 +43,7 @@ def device_login(client_id, path):
         time.sleep(interval)
         try:
             _, tok = request("POST", TOKEN_URL, form={
-                "client_id": client_id, "scopes": SCOPES, "device_code": d["device_code"],
+                "client_id": client_id, "scopes": ASK, "device_code": d["device_code"],
                 "grant_type": "urn:ietf:params:oauth:grant-type:device_code"})
         except HTTPError as e:
             msg = str(e.body.get("message", "")).lower()
@@ -97,6 +99,7 @@ class Token:
         if missing:
             raise SystemExit(f"❌ Token is missing {missing}. Run --login again.")
         self.login, self.user_id = info["login"], info["user_id"]
+        self.scopes = set(info.get("scopes", []))
 
     @property
     def access(self):

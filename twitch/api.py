@@ -1,4 +1,4 @@
-"""The 3 Helix calls the bot needs: look up user ids, subscribe to chat, send a message."""
+"""The Helix calls the bot needs: user ids, stream info, my emotes, subscribe to chat, send a message."""
 from twitch.http import request, HTTPError
 
 HELIX = "https://api.twitch.tv/helix"
@@ -31,6 +31,24 @@ class Helix:
         for d in self._call("GET", f"/channels?{q}").get("data", []):
             bits = [x for x in (d.get("title", "").strip(), d.get("game_name", "").strip()) if x]
             out[d.get("broadcaster_id")] = " · ".join(bits)[:160]
+        return out
+
+    def global_emotes(self):
+        """Twitch's own global emotes (LUL, Kappa...) - names only. No extra login needed."""
+        return [e["name"] for e in self._call("GET", "/chat/emotes/global").get("data", []) if e.get("name")]
+
+    def user_emotes(self, user_id, broadcaster_id=None, pages=20):
+        """Every emote MY account can post: globals, its own sub/bits emotes, follower emotes.
+        [{name, type, owner}] - needs the user:read:emotes scope."""
+        out, after = [], None
+        for _ in range(pages):
+            q = f"/chat/emotes/user?user_id={user_id}" + (f"&broadcaster_id={broadcaster_id}" if broadcaster_id else "")
+            d = self._call("GET", q + (f"&after={after}" if after else ""))
+            out += [{"name": e.get("name", ""), "type": e.get("emote_type", ""), "owner": str(e.get("owner_id", ""))}
+                    for e in d.get("data", []) if e.get("name")]
+            after = (d.get("pagination") or {}).get("cursor")
+            if not after:
+                break
         return out
 
     def subscribe_chat(self, session_id, broadcaster_id, bot_id):

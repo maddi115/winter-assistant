@@ -113,6 +113,28 @@ def mark_spoken(room, why, said=None):
         room.last_meow = room.clock()
 
 
+def load_my_emotes(helix, token, rooms, ids, log):
+    """Ask Twitch which emotes MY account can post (globals + its own subs/follower emotes),
+    so it picks from its real selection - never a word that shows up as plain text."""
+    from twitch.emotes import usable_here
+    mine, how = [], ""
+    if "user:read:emotes" in getattr(token, "scopes", set()):
+        try:
+            mine, how = helix.user_emotes(token.user_id), "my account's emotes"
+        except Exception as e:
+            log(f"⚠️  couldn't load my emotes ({e})")
+    if not mine:
+        try:
+            mine = [{"name": n, "type": "globals", "owner": "0"} for n in helix.global_emotes()]
+            how = "Twitch globals (run --login again to also get the account's own emotes)"
+        except Exception as e:
+            log(f"⚠️  couldn't load Twitch emotes ({e}) - using the built-in list")
+            return
+    for login, room in rooms.items():
+        room.mine = usable_here(mine, ids.get(login, ""))
+    log(f"🖼️  emotes: {len(mine)} from {how}")
+
+
 def logged_in_name(config):
     """The bot account from twitch_token.json (no network), else winterrs0."""
     try:
@@ -249,6 +271,7 @@ async def live(config, brain):
     for r in rooms.values():
         r.native_only = not config.twitch_third_party_emotes   # ICANT as plain text looks botty
     ids = dict(channels)
+    load_my_emotes(helix, token, rooms, ids, log)
     # my own channel: chatters saved to disk.  someone else's: only in memory while running
     home_people = Chatters(config.twitch_chatters_file if config.twitch_remember_chatters else None)
     guest_people = Chatters(None)

@@ -681,7 +681,26 @@ check("picker: 2 of 3 must agree, skip wins ties", CF.pick(type("L", (), {"chat_
       json.dumps({"lines": [2], "react": "agree"})])) else False)
 
 print("\nT. The room's emotes")
-re_ = Room("scentlessoppa", guest=True); re_.native_only = False             # BTTV/7TV mode
+re_ = Room("scentlessoppa", guest=True); from twitch.emotes import usable_here
+_mine = [{"name": "LUL", "type": "globals", "owner": "0"}, {"name": "Kappa", "type": "globals", "owner": "0"},
+         {"name": "winterHi", "type": "subscriptions", "owner": "77"}, {"name": "scentlFollow", "type": "follower", "owner": "555"}]
+check("follower emotes only in their own channel", usable_here(_mine, "555") == {"LUL", "Kappa", "winterHi", "scentlFollow"}
+      and "scentlFollow" not in usable_here(_mine, "999"))
+rm_ = Room("scentlessoppa", guest=True); rm_.mine = usable_here(_mine, "555")
+check("uses its real Twitch selection (Kappa, its follower emote)", rm_.renders("Kappa") and rm_.renders("scentlFollow"))
+check("...and never a word not in it (ICANT, WutFace when not owned)", not rm_.renders("ICANT") and not rm_.renders("WutFace"))
+rm_.note_emotes("a", "scentlFollow", [{"name": "scentlFollow", "owner": "555", "set": "9"}], "")
+rm_.note_emotes("b", "scentlFollow", [{"name": "scentlFollow", "owner": "555", "set": "9"}], "")
+check("channel emote I CAN post isn't treated as off-limits", "scentlFollow" in rm_.usable_emotes() and "scentlFollow" not in rm_.sub_emotes)
+import twitch.api as TA
+_pages = [{"data": [{"name": "LUL", "emote_type": "globals", "owner_id": "0"}], "pagination": {"cursor": "c1"}},
+          {"data": [{"name": "winterHi", "emote_type": "subscriptions", "owner_id": "77"}], "pagination": {}}]
+_hx = TA.Helix("cid", type("T", (), {"access": "x"})())
+_hx._call = lambda method, path, **kw: _pages.pop(0)
+check("reads every page of my emotes", [e["name"] for e in _hx.user_emotes("1")] == ["LUL", "winterHi"])
+import twitch.auth as TAU
+check("asks for the emote scope, but only chat scopes are required", "user:read:emotes" in TAU.ASK and "user:read:emotes" not in TAU.SCOPES)
+re_.native_only = False             # BTTV/7TV mode
 re_.note_emotes("a", "LUL", [{"name": "LUL", "owner": "0", "set": "0"}], "")
 re_.note_emotes("b", "LUL", [{"name": "LUL", "owner": "0", "set": "0"}], "")
 re_.note_emotes("a", "scentlHere4U", [{"name": "scentlHere4U", "owner": "1234", "set": "999"}], "")

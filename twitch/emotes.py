@@ -24,6 +24,7 @@ MEANING = {
     "Bedge": "going to sleep", "Okayge": "it's okay", "Madge": "mad", "pepeLaugh": "laughing knowingly",
 }
 _CANON = {k.lower(): k for k in MEANING}
+# fallback only - at startup the bot asks Twitch for its real emote list (twitch/api.py)
 # Twitch's own GLOBAL emotes - these turn into pictures for everyone. ICANT / KEKW / HUH / catJAM are
 # BTTV / 7TV / FFZ: only people with that extension see a picture, everyone else just sees the word.
 TWITCH_GLOBAL = {"LUL", "Kappa", "BibleThump", "NotLikeThis", "SeemsGood", "WutFace", "DansGame", "Kreygasm",
@@ -98,3 +99,9 @@ def cheat_sheet(lines) -> str:
 def fix_case(text: str) -> str:
     """kekw -> KEKW (emote names are case-sensitive)."""
     return re.sub(r"[A-Za-z0-9]+", lambda m: _CANON.get(m.group(0).lower(), m.group(0)), text)
+
+
+def usable_here(mine, channel_id):
+    """From my account's emote list: what I can post in THIS channel.
+    Follower emotes only work in their own channel; everything else (globals, my subs) works anywhere."""
+    return {e["name"] for e in mine if e.get("type") != "follower" or e.get("owner") == str(channel_id)}
