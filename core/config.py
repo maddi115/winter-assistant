@@ -132,11 +132,12 @@ class Config:
     twitch_sense_check: bool = True       # final "does this make sense right now?" vote (2 of 3)
     twitch_shadow_guest: bool = True      # someone else's chat: speaking up is only LOGGED (🫥), not sent - review first
     twitch_shadow_home: bool = False      # my own chat: speaking up is sent
+    twitch_shadow_emotes: bool = False    # emote-only reactions (LUL, ICANT, 😹) skip shadow - they ARE sent, words stay shadowed
     twitch_pick_max_lines: int = 4        # the picker grabbing more lines than this = "no real conversation" -> skip
     twitch_quote_min_words: int = 5       # answers about me shorter than this (like "For real, I thin.") aren't sent
     twitch_stream_info: bool = True       # read the stream title + category so it knows what's on screen
     # chat mood -> one emote (twitch/mood.py) - its own budget, separate from words
-    twitch_moment_mood: float = 0.6       # chance to react when 3+ people share a mood
+    twitch_moment_mood: float = 0.6       # chance to react when 2+ people share a mood
     twitch_mood_people: int = 2           # 2 people laughing together is already a moment (one emote is low-risk)
     twitch_mood_seconds: int = 30
     twitch_emote_gap: int = 180           # seconds between my emote reactions

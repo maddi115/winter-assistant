@@ -529,6 +529,7 @@ check("sad mood -> 🥀", decide(ms, "winterrs0", cq, rq3, rng=lambda: 0.0, emoj
 rq4 = Room("w4", clock=lambda: qc[0], guest=True)
 rq4.add("a", "a", "KEKW"); m1 = msg("LUL", user="b"); rq4.add(m1.user, m1.name, m1.text)
 check("2 people laughing together -> a mood now (one emote is low-risk)", decide(m1, "winterrs0", cq, rq4, rng=lambda: 0.0)[1] == "chat mood")
+check("emotes are SENT even while words are shadowed (guest)", Config().twitch_shadow_emotes is False and Config().twitch_shadow_guest is True)
 rq5 = Room("w5", clock=lambda: qc[0], guest=True); m5 = msg("KEKW", user="solo"); rq5.add(m5.user, m5.name, m5.text)
 check("one person laughing alone -> not a mood", decide(m5, "winterrs0", cq, rq5, rng=lambda: 0.0)[1] == "just a reaction")
 rq2.emote_times = [qc[0]]

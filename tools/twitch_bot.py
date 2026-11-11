@@ -370,6 +370,8 @@ async def live(config, brain):
                 log(f"🕰️  {m.user}: {q[:60]} -> chat moved on, not sending: {reply}")
                 continue
             shadow = config.twitch_shadow_guest if room.guest else config.twitch_shadow_home
+            if why == "chat mood" and not config.twitch_shadow_emotes:
+                shadow = False                  # one emote is low-risk: send it even while words are shadowed
             if shadow and why in JOIN_IN:
                 log(f"🫥 #{m.channel} would say (shadow, not sent): {reply}   [{why} · {route}]"
                     + context_block(brain, route))
