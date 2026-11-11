@@ -73,6 +73,25 @@ def mood_of(text: str):
     return max(votes, key=votes.get)
 
 
+COLORS = {"black", "white"}
+PEOPLE = {"people", "ppl", "guys", "guy", "girls", "girl", "men", "man", "women", "woman", "folks", "dudes",
+          "dude", "boys", "boy", "kids", "person", "chicks", "families", "family", "neighborhood", "culture"}
+
+
+def baity(text):
+    """Race / where-people-are-from bait. 'black' / 'white' only count next to a people word -
+    'there white on stream' (socks) or 'black hoodie' is fine."""
+    words = [w.lower() for w in TOKEN.findall(text)]
+    for i, w in enumerate(words):
+        if w in COLORS:
+            near = set(words[max(0, i - 2):i + 3])
+            if near & PEOPLE:
+                return True
+        elif w in HATE:
+            return True
+    return False
+
+
 def room_mood(room, seconds=20, people=3):
     """-> (mood, lines) if 3+ different people share one mood right now, else (None, [])."""
     cut = room.clock() - seconds
@@ -91,7 +110,7 @@ def room_mood(room, seconds=20, people=3):
         return None, []
     # never pile onto bait about race / where people are from
     recent = [l for l in room.lines if not l.is_bot and l.ts >= cut - 30]
-    if any(set(w.lower() for w in TOKEN.findall(l.text)) & HATE for l in recent):
+    if any(baity(l.text) for l in recent):
         return None, []
     return best, lines
 

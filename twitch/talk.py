@@ -99,6 +99,10 @@ def decide(m: Incoming, bot: str, c, room, rng=random.random, knows=None, emojis
         if mood_ and rng() < c.twitch_moment_mood:
             emote = MD.pick_emote(mood_, room, emojis or (), lines_)
             if emote:
+                # claim the budget NOW: two laughs a second apart must not both send an emote
+                # (that sent WutFace twice and Twitch blocked the 2nd as a duplicate)
+                room.emote_times = list(getattr(room, "emote_times", [])) + [room.clock()]
+                room.last_emote = emote
                 return emote, "chat mood"
     # Twitch marks emotes (even the streamer's sub emotes) - a message that's only emotes is a reaction
     only_emotes = bool(getattr(m, "emotes", None)) and is_reaction(m.plain or "")

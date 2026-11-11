@@ -521,9 +521,12 @@ for k, t in enumerate(["KEKW", "ICANT", "LMAO", "KEKW KEKW"]):
 mw = msg("OMEGALUL", user="p9"); rq2.add(mw.user, mw.name, mw.text)
 _r = decide(mw, "winterrs0", cq, rq2, rng=lambda: 0.0, emojis=["😹", "🥀"])
 check("3+ people laughing -> one laugh emote", _r[1] == "chat mood" and _r[0] in ("ICANT", "KEKW", "😹"), _r)
-rq2.native_only = True; rq2.last_emote = None
+rq2.native_only = True; rq2.last_emote = None; rq2.emote_times = []
 _r = decide(mw, "winterrs0", cq, rq2, rng=lambda: 0.0, emojis=["😹", "🥀"])
 check("default: laughing -> LUL (a real picture), never ICANT/KEKW as plain text", _r[0] in ("LUL", "😹"), _r)
+_mw3 = msg("LMAO", user="p10"); rq2.add(_mw3.user, _mw3.name, _mw3.text)
+check("two laughs back to back -> only ONE emote (no duplicate WutFace)",
+      decide(_mw3, "winterrs0", cq, rq2, rng=lambda: 0.0, emojis=["😹", "🥀"])[1] != "chat mood")
 rq3 = Room("w3", clock=lambda: qc[0], guest=True)
 for k in range(5):
     rq3.add(f"s{k}", "s", "Sadge")
@@ -843,6 +846,9 @@ check("3 people shocked -> HUH (BTTV/7TV mode)", decide(mh, "winterrs0", Config(
 zh.native_only = True; zh.last_emote = None; zh.emote_times = []
 check("default: shocked -> WutFace / 😳 (renders for everyone)", decide(mh, "winterrs0", Config(), zh, rng=lambda: 0.0)[0] in ("WutFace", "😳"),
       decide(mh, "winterrs0", Config(), zh, rng=lambda: 0.0))
+from twitch.mood import baity
+check("'there white on stream' (socks) isn't race bait", not baity("there white on stream") and not baity("black hoodie goes hard"))
+check("...but 'white people' / 'black guys' still is", baity("white people be like") and baity("black guys always"))
 check("BTTV/7TV emotes off by default", Config().twitch_third_party_emotes is False)
 zf = zroom([("a", "oh yum"), ("b", "yummy"), ("c", "Kreygasm")])
 mf = msg("yum", user="d"); zf.add(mf.user, mf.name, mf.text)

@@ -107,8 +107,7 @@ def mark_spoken(room, why, said=None):
     if why in MOMENTS:
         room.spoke_uninvited()               # words budget
     if why == "chat mood":
-        room.emote_times.append(room.clock())   # emotes have their own budget
-        room.last_emote = said
+        room.last_emote = said                  # budget was already claimed in decide()
     if why == "meow":
         room.last_meow = room.clock()
 
