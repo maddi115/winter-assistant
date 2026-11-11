@@ -22,6 +22,9 @@ class Room:
         self.times = deque(maxlen=1000)  # when humans talked - for chat speed (more than the 50 lines kept)
         self.last_bot = -1e9            # when the bot last spoke
         self.last_chime = -1e9          # when the bot last jumped in uninvited
+        self.last_meow = -1e9           # meows have their own timer (don't eat the join-in budget)
+        self.last_wave = -1e9           # when I last joined a chat wave
+        self.uninvited = []             # times I spoke without being asked (budget)
         self.idle_spoken = False        # already broke one silence since the last human message
 
     def add(self, user, name, text, is_bot=False) -> Line:
@@ -66,3 +69,23 @@ class Room:
         """Chat speed: human messages per minute lately."""
         cut = self.clock() - window
         return sum(1 for t in self.times if t >= cut) * 60.0 / window
+
+    def spoke_uninvited(self):
+        self.uninvited.append(self.clock())
+        self.last_chime = self.clock()
+
+    def uninvited_since(self, seconds):
+        cut = self.clock() - seconds
+        self.uninvited = [t for t in self.uninvited if t >= cut]
+        return len(self.uninvited)
+
+    def wave(self, seconds=15, people=4):
+        """Several people spamming the same kind of reaction right now -> its mood, else None."""
+        from twitch.emotes import is_reaction, mood
+        cut = self.clock() - seconds
+        recent = [l for l in self.lines if not l.is_bot and l.ts >= cut and is_reaction(l.text)]
+        moods = {}
+        for l in recent:
+            moods.setdefault(mood(l.text), set()).add(l.user)
+        best = max(((m, len(u)) for m, u in moods.items() if m != "other"), key=lambda x: x[1], default=None)
+        return best[0] if best and best[1] >= people else None

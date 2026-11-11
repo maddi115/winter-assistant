@@ -6,6 +6,7 @@
   * personality comes from memory/personality.md
 """
 import re
+import threading
 from collections import OrderedDict
 
 from core import colors
@@ -28,6 +29,14 @@ SELF_ASK = {
                 "a few words. only mention what they usually talk about if it fits naturally. "
                 "if it'd be weird, reply exactly: skip)"),
 }
+
+
+def backed_by(line, fact, need=2) -> bool:
+    """The line's real words come from my real message (at least `need` of them)."""
+    from retrieval.gradient import content_terms, stem
+    mine = {stem(w) for w in content_terms(fact)}
+    said = {stem(w) for w in content_terms(line)}
+    return len(mine & said) >= need
 
 
 def is_skip(text) -> bool:
@@ -66,6 +75,8 @@ class Brain:
         self.base = base_context
         self.chatters = OrderedDict()
         self.last_context = ""
+        self.gpu = threading.Lock()          # one search / answer at a time on the GPU
+        self._known = OrderedDict()          # text -> my real message about it (or None)
         self.max = max_chatters
         colors.ENABLED = False
 
@@ -85,7 +96,39 @@ class Brain:
             self.chatters.popitem(last=False)
         return a
 
-    def _set_room(self, room, before=None, talking_to=None, note=None, may_skip=False, current=""):
+    def knows(self, text):
+        """One of MY real messages that's clearly about what chat is saying, or None.
+        Strict on purpose: the rarest word must match, it must be me talking (not a question),
+        and it must be close in meaning. Private topics never count."""
+        key = (text or "").strip().lower()
+        if key in self._known:
+            return self._known[key]
+        found = None
+        try:
+            from transport import classify
+            private = getattr(self.c, "private_topics", [])
+            searcher = getattr(self._transport(), "searcher", None)
+            if searcher is not None and not classify.is_private(text, private):
+                with self.gpu:
+                    cands = searcher.search(text)
+                for x in cands[:5]:
+                    if (x.get("has_anchor") and x.get("first_person") and not x.get("is_question")
+                            and x.get("sem", 0) >= self.c.twitch_topic_min_sem
+                            and not classify.is_private(x.get("text", ""), private)):
+                        found = x["text"][:160]
+                        break
+        except Exception:
+            found = None
+        self._known[key] = found
+        if len(self._known) > 500:
+            self._known.popitem(last=False)
+        return found
+
+    def _transport(self):
+        a = next(iter(self.chatters.values()), None) or self.make_adapter(ChatterMemory(0))
+        return getattr(a, "transport", None)
+
+    def _set_room(self, room, before=None, talking_to=None, note=None, may_skip=False, current="", fact=None):
         """The chat AI gets the recent chat + what I remember about this person
         as background (one answer at a time, so this is safe)."""
         ctx = self.base
@@ -103,6 +146,9 @@ class Brain:
         sheet = cheat_sheet(lines + [current])
         if sheet:
             ctx += f"\nTwitch emotes in chat are reactions, not words: {sheet}."
+        if fact:
+            ctx += (f"\nSomething you REALLY said before about this (use it in your own words only if it fits, "
+                    f"never quote it, don't add details): \"{fact}\"")
         if may_skip:
             ctx += ("\nNot every message needs an answer. If this one doesn't (filler, a random word, "
                     "nothing to add), reply exactly: skip")
@@ -131,25 +177,31 @@ class Brain:
             line_ = f"ur {name} lol" if key == "USER_NAME" else "idk that one's on u lol"
             return line_, "stranger_self"
         self._set_room(room, before=line, talking_to=name, note=note, may_skip=may_skip, current=question)
-        out = colors.strip("".join(a.chat(question)))
+        with self.gpu:
+            out = colors.strip("".join(a.chat(question)))
         guest = getattr(room, "guest", False)
         limit = self.c.twitch_guest_quote_chars if guest and a.last_route not in AI_ROUTES else self.c.twitch_max_chars
         text = chat_line(out, limit, self.c.twitch_citations, self.c.twitch_block_words, self.c.twitch_max_quotes)
         return self._polish(text, a.last_route, room), a.last_route
 
-    def self_line(self, room, kind="silence", name=None, note=None, text=None):
+    def self_line(self, room, kind="silence", name=None, note=None, text=None, fact=None):
         """Talking without being asked: silence / welcome (self_talk.py) or chime (talk.py).
         -> one line, or None when the AI has nothing good to say."""
-        self._set_room(room, current=text or "")      # first, so --show-context is never stale
+        self._set_room(room, current=text or "", fact=fact)   # first, so --show-context is never stale
         if self.ai is None or not hasattr(self.ai, "generate"):
             return None
         ask = SELF_ASK[kind].format(name=name or "someone", note=note or "", text=(text or "")[:200])
         try:
-            raw = "".join(self.ai.generate(ask, []))
+            with self.gpu:
+                raw = "".join(self.ai.generate(ask, []))
         except Exception:
             return None
         from transport.checker import persona_guard, claim_guard
-        raw = claim_guard(persona_guard(raw, ask, self.c.persona_name) or "")
+        raw = persona_guard(raw, ask, self.c.persona_name) or ""
+        guarded = claim_guard(raw)
+        if not guarded and fact and backed_by(raw, fact):
+            guarded = raw                    # a claim about me is fine when my real message backs it
+        raw = guarded
         if not raw or is_skip(raw):
             return None
         line = chat_line(raw, self.c.twitch_max_chars, False, self.c.twitch_block_words)

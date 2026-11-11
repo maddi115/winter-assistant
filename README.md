@@ -118,6 +118,13 @@ conversations, never saves chatters to disk, 10s between messages, short replies
 If Twitch drops 3 messages in a row (slow mode, AutoMod) it pauses there for 5 minutes.
 Practice: `python tools/twitch_bot.py --dry-run --guest`
 
+**Speaking up only at real moments (never a dice roll).** Uninvited, I only consider talking when:
+someone asks chat a question ("anyone played this?"), chat is on a topic I've really talked about
+(checked against my real messages - private topics never count), or 4+ people spam the same reaction
+(I add one 😹 / 🥀 / W). Even then it's a maybe, the AI can skip, and there's a budget:
+2 per 15 min in someone else's chat, 4 at home. Plain chat ("good so far", "let sam drive") never gets a reply.
+Tune it in config.json: `twitch_moment_*`, `twitch_budget_15min_*`, `twitch_topic_min_sem`.
+
 **Not replying to everything.** Emote-only messages (ICANT, KEKW, omg, 😹) are reactions - ignored unless
 they're aimed at me. At home in a 1-on-1 the AI may answer "skip"; direct questions and tags always get an
 answer. Fast chat (20+/min) -> I join in less; flying chat (60+/min) -> only when talked to.

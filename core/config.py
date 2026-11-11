@@ -109,6 +109,15 @@ class Config:
     twitch_burst_max: int = 3             # at most this many bot messages...
     twitch_burst_window: int = 30         # ...in this many seconds, all channels together
     twitch_show_chat: bool = True         # terminal shows every chat message it reads (👀) + why it stayed quiet
+    # joining in only at real MOMENTS (twitch/talk.py) - never at random
+    twitch_moment_question: float = 0.4   # someone asks chat a question ("anyone played this?")
+    twitch_moment_topic: float = 0.6      # chat talks about something I've really talked about
+    twitch_moment_wave: float = 0.5       # 4+ people spamming the same reaction -> one 😹 / 🥀 / W
+    twitch_topic_min_sem: float = 0.55    # how close my real message has to be (higher = stricter)
+    twitch_wave_gap: int = 180            # seconds between joining waves
+    twitch_meow_gap: int = 60             # seconds between meows in someone else's chat
+    twitch_budget_15min_guest: int = 2    # max uninvited messages per 15 min in someone else's chat
+    twitch_budget_15min_home: int = 4     # ...and in my own
     twitch_max_reply_tokens: int = 120
     twitch_ignore_users: List[str] = field(default_factory=lambda: [
         "nightbot", "streamelements", "streamlabs", "moobot", "fossabot", "wizebot", "soundalerts", "sery_bot"])

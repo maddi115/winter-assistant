@@ -188,16 +188,16 @@ def say(user, text, **kw):
 check("1-on-1: answers a plain message", say("viewer1", "yo") == ("yo", "1-on-1"), say("viewer1", "yo"))
 say("bob", "this stream is fire")
 q, why = say("viewer1", "lol that boss fight was crazy")
-check("busy chat: stays out of it", q is None and why == "letting them talk", why)
+check("busy chat: plain chat -> no reason to jump in", q is None and why == "no reason to jump in", why)
 check("busy chat: answers when I'm named", say("bob", "winter what do u think") == ("what do u think", "said my name"))
 check("busy chat: answers meow", say("bob", "meow")[1] == "meow")
 check("busy chat: @me always works", say("bob", "@agentwinterrr yo", mentions=["agentwinterrr"])[1] == "direct")
 check("never jumps into replies to others", say("bob", "true", reply_to="viewer1")[0] is None)
 m = msg("anyone play valorant?", user="cara")
 room.add(m.user, m.name, m.text)
-check("busy chat: sometimes chimes in (chance)", decide(m, "agentwinterrr", c3, room, rng=lambda: 0.0)[1] == "chimed in")
+check("busy chat: a question to chat is a moment", decide(m, "agentwinterrr", c3, room, rng=lambda: 0.0)[1] == "question to chat")
 room.last_chime = clock[0]
-check("...but not twice in a row", decide(m, "agentwinterrr", c3, room, rng=lambda: 0.0)[1] == "chimed in recently")
+check("...but not twice in a row", decide(m, "agentwinterrr", c3, room, rng=lambda: 0.0)[1] == "spoke up recently")
 check("quiet mode (reply_all off) ignores plain chat",
       decide(msg("yo", user="zed"), "agentwinterrr", Config(twitch_reply_all=False), Room("x"))[0] is None)
 
@@ -253,6 +253,8 @@ n = ch.note("viewer1", away)
 check("note: count, came back, topics", "3 times" in n and "came back after 5 hours" in n and "l4d2" in n, n)
 check("slang isn't a topic", "lol" not in ch.get("viewer1")["topics"] and "yo" not in ch.get("viewer1")["topics"])
 check("counts talks with me", ch.get("viewer1")["talks"] == 1)
+ch.seen("viewer1", "Viewer1", "RaccAttack ICANT KEKW hahaha")
+check("emotes aren't topics", not {"raccattack", "icant", "kekw", "hahaha"} & set(ch.get("viewer1")["topics"]))
 for k in range(10):
     ch.seen("viewer1", "Viewer1", f"line {k}")
 check("keeps only their last 5 lines", len(ch.get("viewer1")["lines"]) == 5)
@@ -336,13 +338,20 @@ check("my name is taken out of the question", decide(msg("agentwinter, whats ur 
 check("'agentwinter' counts even with an old agent_label", decide(msg("agentwinter do you smoke weed?", user="viewer9"),
       "agentwinterrr", cg2, Room("x", guest=True), rng=lambda: 0.99)[1] == "said my name")
 check("reply to me -> answers", gsay("viewer2", "fr?", reply_to="agentwinterrr")[1] == "direct")
-q, why = gsay("viewer3", "anyone tried the new map", rng=0.0)
-check("joining in only by chance", why == "chimed in", why)
-g.last_chime = gc[0]
-check("then not again for 5 min", gsay("viewer3", "its so good", rng=0.0)[1] == "chimed in recently")
-check("meow in their chat is rate-limited too", gsay("viewer4", "meow")[1] == "meowed recently")
+check("plain chat in their channel -> no reason", gsay("viewer3", "good so far", rng=0.0)[1] == "no reason to jump in")
+q, why = gsay("viewer3", "anyone tried the new map?", rng=0.0)
+check("question to chat -> a moment", why == "question to chat", why)
+g.spoke_uninvited()
+check("then not again for 5 min", gsay("viewer3", "anyone else lagging?", rng=0.0)[1] == "spoke up recently")
 gc[0] += cg.twitch_guest_chime_gap + 1
-check("meow after the gap -> meows back", gsay("viewer4", "meow")[1] == "meow")
+g.spoke_uninvited()
+gc[0] += cg.twitch_guest_chime_gap + 1
+check("guest budget: 2 per 15 min, then quiet", gsay("viewer3", "who is winning this?", rng=0.0)[1] == "said enough lately")
+g.last_meow = gc[0]
+check("meow in their chat is rate-limited", gsay("viewer4", "meow")[1] == "meowed recently")
+gc[0] += cg.twitch_meow_gap + 1
+check("meow after its own gap -> meows back", gsay("viewer4", "meow")[1] == "meow")
+check("meow has its own timer (doesn't eat the budget)", g.uninvited_since(900) == 2)
 check("guest join-in chance is lower than home", cg.twitch_guest_chime_chance < cg.twitch_chime_chance)
 stg = SelfTalk(cg, clock=lambda: gc[0])
 for u in ["viewer1", "viewer2", "viewer3"]:
@@ -422,8 +431,8 @@ check("chat flying (70/min) -> only when talked to",
 rb = Room("busy2", clock=lambda: oc[0])
 for k in range(30):
     rb.add(f"u{k % 6}", "u", "chat chat")
-check("busy chat (30/min) -> joins in less", decide(msg("who is winning", user="v"), "winterrs0", co, rb,
-      rng=lambda: co.twitch_chime_chance * 0.9)[1] == "letting them talk")
+check("busy chat (30/min) -> speaks up less", decide(msg("who is winning this round?", user="v"), "winterrs0", co, rb,
+      rng=lambda: co.twitch_moment_question * 0.9)[1] == "question to chat, but let it go")
 from twitch.humanize import humanize
 E = ["😹", "🥀", "KEKW", "LUL"]
 check("at most one emoji, only mine", humanize("LMAO that is wild 😹😹🔥", emojis=E) == "lmao that is wild 😹")
@@ -479,6 +488,49 @@ check("rule answers say so", "no AI context" in tbot.context_block(bs, "private"
 tbot.SHOW_CONTEXT = False
 check("off by default", tbot.context_block(bs, "general") == "")
 check("👀 chat view on by default", Config().twitch_show_chat is True)
+
+print("\nQ. Moments, not dice rolls")
+from twitch.talk import asks_chat
+qc = [5000.0]
+rq = Room("scentlessoppa", clock=lambda: qc[0], guest=True)
+cq = Config()
+
+
+def qsay(user, text, rng=0.0, knows=None):
+    mm = msg(text, user=user)
+    rq.add(mm.user, mm.name, mm.text)
+    qc[0] += 1
+    return decide(mm, "winterrs0", cq, rq, rng=lambda: rng, knows=knows, emojis=["😹", "🥀", "KEKW", "LUL"])
+
+
+for t in ["We good", "good so far", "let sam drive", "Sam made it to USA Kreygasm", "I used to get headaches",
+          "Who’s that gooner in the back? Kappa Kappa Kappa"]:
+    check(f"real chat line '{t[:30]}' -> stays quiet even on a lucky roll", qsay("v1", t, rng=0.0)[0] is None)
+check("'RaccAttack' (emote not on the list) is a reaction", qsay("v2", "RaccAttack")[1] == "just a reaction")
+check("'hahhahahahaah' is a reaction", qsay("v3", "hahhahahahaah")[1] == "just a reaction")
+check("'huh?' isn't a question to chat", not asks_chat("huh?"))
+check("'anyone played this before?' is", asks_chat("anyone played this before?"))
+said = lambda t: "I like eating burritos with chips" if "burrito" in t else None
+check("topic I really talked about -> moment", qsay("v4", "chat whats ur fav burrito spot", knows=said)[1] in ("i know this", "question to chat"))
+rq2 = Room("w", clock=lambda: qc[0], guest=True)
+for k, t in enumerate(["KEKW", "ICANT", "LMAO", "KEKW KEKW"]):
+    rq2.add(f"p{k}", "p", t)
+mw = msg("OMEGALUL", user="p9"); rq2.add(mw.user, mw.name, mw.text)
+check("4+ people laughing -> join the wave with 😹", decide(mw, "winterrs0", cq, rq2, rng=lambda: 0.0,
+      emojis=["😹", "🥀"]) == ("😹", "chat wave"))
+rq3 = Room("w3", clock=lambda: qc[0], guest=True)
+for k in range(5):
+    rq3.add(f"s{k}", "s", "Sadge")
+ms = msg("F", user="s9"); rq3.add(ms.user, ms.name, ms.text)
+check("sad wave -> 🥀", decide(ms, "winterrs0", cq, rq3, rng=lambda: 0.0, emojis=["😹", "🥀"]) == ("🥀", "chat wave"))
+rq4 = Room("w4", clock=lambda: qc[0], guest=True)
+rq4.add("a", "a", "KEKW"); m1 = msg("LUL", user="b"); rq4.add(m1.user, m1.name, m1.text)
+check("2 people laughing isn't a wave", decide(m1, "winterrs0", cq, rq4, rng=lambda: 0.0)[1] == "just a reaction")
+rq2.last_wave = qc[0]
+check("no second wave right away", decide(mw, "winterrs0", cq, rq2, rng=lambda: 0.0)[1] == "just a reaction")
+from twitch.brain import backed_by
+check("a claim backed by my real message is allowed", backed_by("i like burritos with chips fr", "I like eating burritos with chips"))
+check("an invented claim isn't", not backed_by("i love sushi", "I like eating burritos with chips"))
 
 print("\nF. Login (device code flow, faked)")
 calls = []

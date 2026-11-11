@@ -65,8 +65,9 @@ def build_brain(config, no_ai=False):
                  ai=ai, base_context=TWITCH_CONTEXT)
 
 
-JOIN_IN = {"chimed in", "meow"}          # not asked directly -> counts toward the join-in gap
-THREAD = {"direct", "said my name"}       # answers to someone -> may use "Replying to @x"
+MOMENTS = {"question to chat", "i know this"}   # speaking up uninvited -> the AI reads chat and may skip
+JOIN_IN = MOMENTS | {"chat wave"}               # count against the budget + gap
+THREAD = {"direct", "said my name"}             # answers to someone -> may use "Replying to @x"
 
 
 MAY_SKIP = {"1-on-1"}                      # not talked to directly -> the AI may decide it's not worth a reply
@@ -74,9 +75,21 @@ MAY_SKIP = {"1-on-1"}                      # not talked to directly -> the AI ma
 
 def answer(brain, m, q, why, room, line, note):
     """Asked directly -> full pipeline, always answers. Joining in / 1-on-1 -> the AI may skip."""
-    if why == "chimed in":
-        return brain.self_line(room, "chime", m.name, note, q), "chime"
+    if why == "chat wave":
+        return q, "wave"                             # just the emoji - no AI needed
+    if why in MOMENTS:
+        fact = brain.knows(q) if why == "i know this" else None
+        return brain.self_line(room, "chime", m.name, note, q, fact=fact), "chime"
     return brain.reply(m.user, m.name, q, room, line, note, may_skip=why in MAY_SKIP)
+
+
+def mark_spoken(room, why):
+    if why in JOIN_IN:
+        room.spoke_uninvited()
+    if why == "chat wave":
+        room.last_wave = room.clock()
+    if why == "meow":
+        room.last_meow = room.clock()
 
 
 def logged_in_name(config):
@@ -144,7 +157,7 @@ def dry_run(config, brain, bot, guest=False):
         user = user.strip().lower()
         m = Incoming("dryrun", "0", user, user, text.strip())
         line = room.add(m.user, m.name, m.text)
-        q, why = decide(m, bot, config, room)
+        q, why = decide(m, bot, config, room, knows=brain.knows, emojis=brain.personality.emojis)
         away = people.seen(m.user, m.name, m.text, talked_to_me=q is not None)
         note = people.note(m.user, away)
         if q is None:
@@ -164,8 +177,7 @@ def dry_run(config, brain, bot, guest=False):
             continue
         if reply:
             room.add(bot, bot, reply, is_bot=True)
-            if why in JOIN_IN:
-                room.last_chime = room.clock()
+            mark_spoken(room, why)
         print(f"   → @{bot}: {reply or '(nothing worth saying)'}   [{why} · {route} · {time.time() - t0:.1f}s]"
               + context_block(brain, route))
     print(f"\n🧠 remembered: " + "; ".join(people.note(u) for u in people.people))
@@ -245,7 +257,8 @@ async def live(config, brain):
             await say(m.channel, f"done, forgot everything about u {m.name}")
             return
         line = room.add(m.user, m.name, m.text)
-        q, why = decide(m, bot, config, room)
+        q, why = await asyncio.to_thread(decide, m, bot, config, room, knows=brain.knows,
+                                         emojis=brain.personality.emojis)
         if config.twitch_show_chat:
             what = "→ answering" if q is not None else f"(quiet: {why})"
             log(f"👀 #{m.channel} {m.user}: {m.text[:90]}   {what}   [room: {len(room.lines)} lines, "
@@ -265,8 +278,10 @@ async def live(config, brain):
             log(f"⏳ {m.user} on cooldown: {q[:60]}")
             return
         cd.mark(m.user)
-        if why in JOIN_IN:                  # counts even if the AI ends up skipping - stay rare
+        if why in JOIN_IN:                  # the gap starts even if the AI ends up skipping - stay rare
             room.last_chime = room.clock()
+        if why == "meow":
+            room.last_meow = room.clock()
         try:
             queue.put_nowait(("reply", m, q, line, why, note))
         except asyncio.QueueFull:
@@ -293,6 +308,8 @@ async def live(config, brain):
                 log(f"🤐 {m.user}: {q[:60]} -> nothing worth saying [{route}]" + context_block(brain, route))
                 continue
             sent, err = await say(m.channel, reply, m.message_id if why in THREAD else None)
+            if sent:
+                mark_spoken(room, why)
             mark = "💬" if sent else f"⚠️  not sent ({err})"
             log(f"{mark} {m.user}: {q[:60]}\n          -> {reply}   [{why} · {route} · {time.time() - t0:.1f}s]"
                 + context_block(brain, route))

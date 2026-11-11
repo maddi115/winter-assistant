@@ -31,6 +31,15 @@ TOKEN = re.compile(r"[A-Za-z0-9?!]+")
 EMOJI_ONLY = re.compile(r"^[\W_]+$")
 
 
+CAMEL = re.compile(r"^[a-z]*[A-Z][a-z]+[A-Z][A-Za-z0-9]*$|^[A-Z]{3,}[a-z]*$|^[a-z]+[A-Z]{2,}[a-z]*$")
+LAUGH = re.compile(r"^(a?h+a+h+[ah]*|a?ha(ha)+h?|l+o+l+[ol]*|lmf?a+o+|xd+|ja(ja)+|kek+|rofl)$", re.I)
+
+
+def looks_like_emote(w: str) -> bool:
+    """RaccAttack, catJAM, Kreygasm... - emotes we don't have on the list."""
+    return bool(CAMEL.match(w)) and len(w) <= 20
+
+
 def is_reaction(text: str) -> bool:
     """Only emotes / emojis / 'lol'-type reactions - nothing to answer."""
     t = (text or "").strip()
@@ -39,7 +48,30 @@ def is_reaction(text: str) -> bool:
     if EMOJI_ONLY.match(t):            # just emojis or punctuation
         return True
     words = TOKEN.findall(t)
-    return 0 < len(words) <= 4 and all(w.lower() in NOISE for w in words)
+    return 0 < len(words) <= 4 and all(w.lower() in NOISE or LAUGH.match(w) or looks_like_emote(w) for w in words)
+
+
+SAD = {"sadge", "pepehands", "biblethump", "feelsbadman", "notlikethis", "f", "rip", "o7", "deadge"}
+HYPE = {"pog", "pogchamp", "poggers", "pogu", "w", "ez", "gigachad", "lets", "go", "letsgo", "batchest"}
+SAD_EMOJI = "🥀😢😭💔🕊"
+
+
+def mood(text: str) -> str:
+    """laugh / sad / hype / other - for joining a chat wave."""
+    t = (text or "")
+    if any(ch in t for ch in SAD_EMOJI):
+        return "sad"
+    if any(ch in t for ch in "😹😂🤣💀"):
+        return "laugh"
+    words = [w.lower() for w in TOKEN.findall(t)]
+    if words and all(w in SAD for w in words):
+        return "sad"
+    if words and all(w in HYPE for w in words):
+        return "hype"
+    if words and any(LAUGH.match(w) or MEANING.get(_CANON.get(w, ""), "").startswith("laugh")
+                     or MEANING.get(_CANON.get(w, ""), "") == "dying laughing" for w in words):
+        return "laugh"
+    return "other"
 
 
 def found(text: str):

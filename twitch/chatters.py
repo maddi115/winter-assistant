@@ -60,7 +60,9 @@ class Chatters:
         p["messages"] += 1
         if talked_to_me:
             p["talks"] += 1
-        words = [w for w in content_terms(text) if w not in JUNK and len(w) > 2]
+        from twitch.emotes import TOKEN, NOISE, LAUGH, looks_like_emote
+        emotes = {w.lower() for w in TOKEN.findall(text) if w.lower() in NOISE or LAUGH.match(w) or looks_like_emote(w)}
+        words = [w for w in content_terms(text) if w not in JUNK and w not in emotes and len(w) > 2]
         topics = Counter(p["topics"])
         topics.update(words)
         p["topics"] = dict(topics.most_common(KEEP_TOPICS))
