@@ -56,16 +56,6 @@ class ConversationAdapter:
     def chat(self, user_input: str) -> Iterator[str]:
         start = time.time()
 
-        # 0. reflexes ("meow" -> "meow baow")
-        from core.reflexes import reflex
-        quick = reflex(user_input)
-        if quick:
-            self.last_route, self.last_debug = "reflex", {}
-            self._save(user_input, quick, start)
-            yield quick
-            yield f"\n\n⏱️  {time.time() - start:.2f}s · reflex\n"
-            return
-
         # 1. exact fact
         fact_key, fact_data = self.router.route(user_input)
         if fact_key and fact_data:
@@ -88,7 +78,7 @@ class ConversationAdapter:
             return
 
         # 2. about the owner -> evidence transport
-        if self.transport is not None and not getattr(self, "skip_transport", False):
+        if self.transport is not None:
             question, exclude = None, set()
             if classify.is_followup(user_input) and self.last_evidence_q:
                 question, exclude = self.last_evidence_q, set(self.shown)
@@ -138,9 +128,7 @@ class ConversationAdapter:
                 response = persona_guard(response, user_input, persona)
                 guarded = claim_guard(response)          # no invented likes/memories about me
                 if not guarded:
-                    # in chat, saying nothing beats a random "lol nah."
-                    guarded = "" if getattr(self.config, "silent_when_unsure", False) \
-                        else templates.pick("NOPE", classify.tone(user_input))
+                    guarded = templates.pick("NOPE", classify.tone(user_input))
                 response = guarded
                 from core import colors
                 yield colors.rainbow(response)       # the AI's own words

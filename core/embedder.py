@@ -13,47 +13,21 @@ from typing import List
 import numpy as np
 
 _CACHE = {}
-_THREADS = [2]
-
-
-def limit_cpu_threads(n):
-    """Keep CPU models from each grabbing every core (they fight and pin the CPU at 100%)."""
-    n = max(1, int(n or 1))
-    _THREADS[0] = n
-    for k in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
-        os.environ[k] = str(n)
-    os.environ["MOONSHINE_ORT_SINGLE_THREAD"] = "1"     # moonshine-voice: no spinning thread pool
-    try:
-        import torch
-        torch.set_num_threads(n)
-        try:
-            torch.set_num_interop_threads(1)
-        except RuntimeError:
-            pass                                        # already set once - fine
-    except Exception:
-        pass
-    return n
 
 
 class Embedder:
     """Wraps sentence-transformers. All vectors come back L2-normalized."""
 
-    def __init__(self, model_name: str, device: str = "auto"):
-        """device: auto (GPU if there is one) | cpu (frees ~1.2GB of GPU for a bigger chat model) | cuda"""
+    def __init__(self, model_name: str):
         from sentence_transformers import SentenceTransformer
         offline = os.environ.get("WINTER_ALLOW_DOWNLOAD") != "1"
         kw = {}
         try:
             import torch
-            use_gpu = torch.cuda.is_available() and device != "cpu"
-            kw["device"] = "cuda" if use_gpu else "cpu"
-            if not use_gpu:
-                limit_cpu_threads(_THREADS[0])
-            if use_gpu:
+            if torch.cuda.is_available():
                 kw["model_kwargs"] = {"dtype": torch.float16}   # half the VRAM
         except Exception:
             pass
-        self.device = kw.get("device", "cpu")
         self.model = SentenceTransformer(model_name, local_files_only=offline, **kw)
         self.dim = self.model.get_sentence_embedding_dimension()
 
@@ -78,9 +52,7 @@ class Embedder:
 
 def get_embedder(config) -> Embedder:
     name = config.embedding_model
-    device = getattr(config, "embed_device", "auto")
     if name not in _CACHE:
-        _THREADS[0] = getattr(config, "cpu_threads", 2)
-        print(f"🔄 Loading embedding model {name}" + (" on the CPU (GPU left for the chat model)" if device == "cpu" else "") + "...")
-        _CACHE[name] = Embedder(name, device)
+        print(f"🔄 Loading embedding model {name}...")
+        _CACHE[name] = Embedder(name)
     return _CACHE[name]
