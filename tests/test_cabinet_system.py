@@ -92,7 +92,12 @@ def main():
     check("private_topics filter hides a fact", "medsecret" not in every, every)
 
     print("\n🎯 Picking a drawer")
-    for q, want in [("what games do you play?", "games"), ("what video games u play", "games"),
+    from retrieval.cabinet_system import stem
+    check("stem: games -> game (not 'gam')", stem("games") == "game" and stem("game") == "game", stem("games"))
+    check("stem: playing/played/boxes/burritos", [stem(w) for w in ["playing", "played", "boxes", "burritos"]]
+          == ["play", "play", "box", "burrito"], [stem(w) for w in ["playing", "played", "boxes", "burritos"]])
+    for q, want in [("what games do you play?", "games"), ("what game do you play", "games"),
+                    ("what video games u play", "games"),
                     ("where are you from?", "home"), ("where do you live", "home"),
                     ("what do you like to eat?", "food")]:
         hit = cab.pick(q)

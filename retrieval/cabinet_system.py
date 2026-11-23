@@ -82,9 +82,15 @@ STOP = {
 
 
 def stem(w: str) -> str:
-    for suf in ("ing", "ed", "es", "s"):
-        if w.endswith(suf) and len(w) - len(suf) >= 3:
-            return w[: -len(suf)]
+    """games -> game, boxes -> box, playing -> play, played -> play (game stays game)."""
+    if w.endswith("ing") and len(w) >= 6:
+        return w[:-3]
+    if w.endswith("ed") and len(w) >= 5:
+        return w[:-2]
+    if w.endswith("es") and len(w) >= 5 and w[-3] in "sxz" or w.endswith(("ches", "shes")):
+        return w[:-2]
+    if w.endswith("s") and not w.endswith("ss") and len(w) >= 4:
+        return w[:-1]
     return w
 
 
