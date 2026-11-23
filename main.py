@@ -41,6 +41,22 @@ def build_transport(config, storage, llm):
         return None, []
 
 
+def build_cabinet(config, transport):
+    """localjev's fact cabinet, shown as Winter's 4th result (retrieval/cabinet_system.py)."""
+    try:
+        from retrieval.cabinet_system import CabinetSystem
+        emb = transport.searcher.embedder if transport is not None else None
+        cabinet = CabinetSystem.from_config(config, emb)
+        if not cabinet.ready:
+            print(f"ℹ️  No cabinet at {cabinet.path} - the 4th result is off.\n")
+            return None
+        print(f"✅ Cabinet ready: {len(cabinet.drawers)} drawers ({cabinet.path})\n")
+        return cabinet
+    except Exception as e:
+        print(f"⚠️  Cabinet disabled: {e}\n")
+        return None
+
+
 def main():
     config = Config.load()
     print(f"🚀 Winter Assistant - {config.agent_label}\n")
@@ -90,7 +106,8 @@ def main():
     transport, style = build_transport(config, storage, ai.model)
     ai.style = style
 
-    adapter = ConversationAdapter(storage, rag, ai, transport=transport, config=config)
+    cabinet = build_cabinet(config, transport)
+    adapter = ConversationAdapter(storage, rag, ai, transport=transport, config=config, cabinet=cabinet)
     ui = TerminalUI(adapter, conversation_title or "", label=config.agent_label, debug=config.debug,
                     persona=config.persona_name)
     try:

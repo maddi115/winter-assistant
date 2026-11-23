@@ -58,6 +58,10 @@ class Config:
     thread_max: int = 2               # ...at most this many on each side
     debug: bool = False               # print route / stasis / votes after each answer
     stream_chat: bool = False         # true = stream word by word, but skips the "talks about me" check
+    # cabinet system (4th result): localjev's fact drawers, see retrieval/cabinet_system.py
+    cabinet_path: str = "~/localjev/twitch/facts"
+    cabinet_min_stasis: float = 0.25  # learned facts below this stasis score are not shown
+    cabinet_match_min: float = 0.45   # how well a question must match a drawer to show it
 
     @classmethod
     def load(cls, config_path: str = "config.json"):

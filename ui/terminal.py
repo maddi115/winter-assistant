@@ -96,6 +96,8 @@ class TerminalUI:
         from core import colors
         print(f"   {colors.pink('pink')} = memory vessels   {colors.green('green')} = {self.persona}'s own words   "
               f"{colors.blue('blue')} = AI summary of those words   {colors.rainbow('rainbow')} = AI's own words")
+        from retrieval.cabinet_system import dither
+        print(f"   {dither(' red-orange ')} = cabinet facts (localjev)")
         print("="*60)
         print("\nCommands: history | search <query> | quit\n")
 

@@ -15,11 +15,12 @@ from transport import classify
 
 class ConversationAdapter:
 
-    def __init__(self, storage: StorageInterface, rag: RAGInterface, ai, transport=None, config=None):
+    def __init__(self, storage: StorageInterface, rag: RAGInterface, ai, transport=None, config=None, cabinet=None):
         self.storage = storage
         self.rag = rag
         self.ai = ai
         self.transport = transport
+        self.cabinet = cabinet                # 4th result (retrieval/cabinet_system.py)
         self.config = config
         self.vessels = Vessels()
         self.router = Router(self.vessels)
@@ -98,6 +99,8 @@ class ConversationAdapter:
                     self.last_route, self.last_debug = res.route, res.debug
                     self._save(user_input, res.text, start)
                     yield res.shown()
+                    if self.cabinet is not None and not exclude:
+                        yield self.cabinet.block(question)    # display only, not saved
                     yield f"\n\n⏱️  {time.time() - start:.2f}s · {res.route}\n"
                     return
                 except Exception as e:
