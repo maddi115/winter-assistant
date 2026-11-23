@@ -59,7 +59,11 @@ DRAWERS = {
              "facts": [fact("i eat tacos", 0.5), fact("i used to eat cereal", 0.6, old=True),
                        fact("i take medsecret pills with food", 0.5)]},
     "work": {"question": "what do you do for work?", "about": "what work or jobs you do", "typed_by_you": "",
-             "facts": [fact("i have one job", 0.1)]},   # below the stasis bar -> drawer is empty
+             "facts": [fact("i have one job", 0.1), fact("i work at events", 0.4)]},
+    "projects": {"question": "what are you working on?", "about": "what you are building", "typed_by_you": "",
+                 "facts": [fact("i make maps", 0.3)]},
+    "tools": {"question": "what tools do you use?", "about": "tools", "typed_by_you": "",
+              "facts": [fact("i have one hammer", 0.1)]},   # below the stasis bar -> drawer is empty
 }
 
 
@@ -83,12 +87,12 @@ def main():
 
     print("\n🗄️  Loading")
     names = sorted(d["name"] for d in cab.drawers)
-    check("loads public drawers only", names == ["food", "games", "home"], names)
+    check("loads public drawers only", names == ["food", "games", "home", "projects", "work"], names)
     every = " ".join(d["typed"] + " " + " ".join(r["fact"] for r in d["facts"]) for d in cab.drawers)
     check("never reads _private/", "private thing" not in every, every)
     check("never reads _unsure.json", "unsure game" not in every, every)
     check("skips 'used to' facts", "cereal" not in every, every)
-    check("skips facts below the stasis bar", "near the beach" not in every and "one job" not in every, every)
+    check("skips facts below the stasis bar", "near the beach" not in every and "one job" not in every and "hammer" not in every, every)
     check("private_topics filter hides a fact", "medsecret" not in every, every)
 
     print("\n🎯 Picking a drawer")
@@ -103,7 +107,7 @@ def main():
         hit = cab.pick(q)
         got = hit["drawer"]["name"] if hit else None
         check(f"'{q}' -> {want}", got == want, got)
-    for q in ["how do i cook rice?", "meow", "what time is it", "do you like the weather today"]:
+    for q in ["what is 2 plus 2", "how do i cook rice?", "meow", "what time is it", "do you like the weather today"]:
         check(f"'{q}' -> no drawer", cab.pick(q) is None, cab.pick(q) and cab.pick(q)["drawer"]["name"])
 
     print("\n🖼️  The block")
@@ -123,6 +127,10 @@ def main():
     words_only = CabinetSystem(path, None, match_min=0.35)
     hit = words_only.pick("what games do you play?")
     check("works without an embedder (words only)", hit and hit["drawer"]["name"] == "games")
+    for q, want in [("what do you do for work?", "work"), ("what are you working on?", "projects")]:
+        hit = words_only.pick(q)
+        got = hit["drawer"]["name"] if hit else None
+        check(f"tie-break by exact words: '{q}' -> {want}", got == want, got)
 
     print("\n🔌 Hooked into Winter (4th result, display only)")
     from core.config import Config

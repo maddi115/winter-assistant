@@ -94,9 +94,14 @@ def stem(w: str) -> str:
     return w
 
 
-def terms(text: str) -> List[str]:
+def raw_words(text: str) -> List[str]:
+    """Lowercase words, no stop words, no bare numbers ("2" alone means nothing)."""
     toks = re.findall(r"[a-z0-9]+", text.lower().replace("'", ""))
-    return [stem(t) for t in toks if t not in STOP]
+    return [t for t in toks if t not in STOP and not t.isdigit()]
+
+
+def terms(text: str) -> List[str]:
+    return [stem(t) for t in raw_words(text)]
 
 
 # ---------------------------------------------------------------- the cabinet
@@ -172,8 +177,12 @@ class CabinetSystem:
             words = len(shared) / len(q) if q else 0.0
             m = float(meaning[i])
             score = 0.6 * m + 0.4 * words if self.vectors is not None else words
-            rows.append({"drawer": d, "words": words, "meaning": m, "score": score, "shared": shared})
-        rows.sort(key=lambda r: -r["score"])
+            # tie-break: the drawer whose own question uses the exact same words
+            # ("what do you do for work?" -> work, "what are you working on?" -> projects)
+            exact = len(set(raw_words(question)) & set(raw_words(d["question"])))
+            rows.append({"drawer": d, "words": words, "meaning": m, "score": score, "shared": shared,
+                         "exact": exact})
+        rows.sort(key=lambda r: (-r["score"], -r["exact"]))
         return rows
 
     def pick(self, question: str) -> Optional[Dict]:
